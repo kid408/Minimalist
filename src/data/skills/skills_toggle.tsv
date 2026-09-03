@@ -1,0 +1,7 @@
+# 开关类（Toggle）：按键切换开/关，开启期间每秒消耗能量
+# effects: toggle_cost=每秒能量消耗; bonus_* = 开启期间的属性加成
+id	name	icon	quality	school	cast_type	cast_mode	shape	target_side	damage	radius	range	duration	ground	tick_interval	cooldown	energy_cost	effects	augment_effects	tags	description
+immolation	献祭	res://assets/skills/skill_icon_04.png	blue	fire	active	toggle	self_ring	enemy	10	130	0	0	false	0.5	2	0	toggle_cost=6.0		fire,aoe,toggle	开启后自身周围持续燃烧，每0.5秒灼烧敌人，每秒消耗6点能量。
+berserk	狂暴	res://assets/skills/skill_icon_18.png	purple	physical	active	toggle	none	self	0	0	0	0	false	1	2	0	toggle_cost=8.0;bonus_attack_speed_pct=0.4;bonus_damage_pct=0.2		physical,toggle,buff	开启后攻速+40%、伤害+20%，每秒消耗8点能量。
+mana_shield	法力护盾	res://assets/skills/skill_icon_15.png	blue	arcane	active	toggle	none	self	0	0	0	0	false	1	2	0	toggle_cost=4.0;bonus_damage_reduce=0.25		arcane,toggle,buff	开启后受到伤害降低25%，每秒消耗4点能量。
+avatar	天神下凡	res://assets/skills/skill_icon_18.png	orange	physical	active	toggle	none	self	0	0	0	0	false	1	2	0	toggle_cost=6.0;bonus_damage_pct=0.3;bonus_attack_speed_pct=0.3		physical,toggle,buff	开启后伤害+30%、攻速+30%，每秒消耗6点能量（对标天神下凡）。

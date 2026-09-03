@@ -1,0 +1,36 @@
+# 瞬发类技能（Instant）：按下预览、松开即结算，不需要选取单位
+# shape: self_ring=自身环形 / line=方向突进 / projectile=弹体 / summon=召唤 / none=纯增益
+id	name	icon	quality	school	cast_type	cast_mode	shape	target_side	damage	radius	range	duration	ground	tick_interval	cooldown	energy_cost	effects	augment_effects	tags	description
+ice_ring	冰环	res://assets/skills/skill_icon_00.png	white	ice	active	instant	self_ring	enemy	30	140	0	0	false	0.5	8	20	freeze=1.5		ice,aoe,control	以自身为中心释放冰环，冻结周围敌人1.5秒。
+guard_field	守御场	res://assets/skills/skill_icon_01.png	blue	physical	active	instant	self_ring	enemy	50	140	0	0	false	0.5	15	25	self_heal_pct=0.5		aoe,shield	范围冲击，结束按伤害回血。
+lightning_nova	闪电新星	res://assets/skills/skill_icon_02.png	purple	lightning	active	instant	self_ring	enemy	70	140	0	0	false	0.5	6	30	chain=5		lightning,aoe	释放环形闪电，连锁弹射5个目标。
+whirlwind	旋风斩	res://assets/skills/skill_icon_18.png	white	physical	active	instant	self_ring	enemy	28	130	0	0	false	0.5	7	22			physical,aoe	纯物理环绕斩击，可移动中施放。
+war_stomp	战争践踏	res://assets/skills/skill_icon_20.png	blue	physical	active	instant	self_ring	enemy	40	150	0	0	false	0.5	9	20	stun=1.5		physical,aoe,control	自身范围震击，眩晕敌人1.5秒。
+fan_of_knives	刀扇	res://assets/skills/skill_icon_09.png	blue	physical	active	instant	self_ring	enemy	45	130	0	0	false	0.5	6	20			physical,aoe	向四周掷出飞刀，范围伤害。
+frost_nova	霜冻新星	res://assets/skills/skill_icon_00.png	blue	ice	active	instant	self_ring	enemy	50	150	0	0	false	0.5	9	30	freeze=1.0;slow=0.4		ice,aoe,control	自身范围冰霜伤害，冻结并减速敌人。
+sleep	睡眠	res://assets/skills/skill_icon_12.png	blue	nature	active	instant	self_ring	enemy	20	150	0	0	false	0.5	12	30	sleep=3.0		nature,control	使周围敌人陷入沉睡，3秒内无法行动。
+silence	沉默	res://assets/skills/skill_icon_13.png	blue	shadow	active	instant	self_ring	enemy	25	150	0	0	false	0.5	11	30	silence=3.0		shadow,control	使周围敌人沉默，无法使用特殊攻击。
+tranquility	宁静	res://assets/skills/skill_icon_14.png	purple	nature	active	instant	self_ring	ally	0	220	0	0	false	0.5	20	40	heal_amount=80.0		nature,heal	范围内治疗自己与召唤物80点生命。
+divine_shield	神圣之盾	res://assets/skills/skill_icon_15.png	blue	holy	active	instant	none	ally	0	0	0	0	false	0.5	25	35	shield=150.0;buff_secs=8.0		holy,buff	为自己与召唤物附加150点吸收护盾，持续8秒。
+heavy_slash	重斩	res://assets/skills/skill_icon_06.png	white	physical	active	instant	line	enemy	35	0	0	0	false	0.5	4	15			physical,dash	向鼠标方向斩击，穿透前方敌人。
+blink_step	闪步	res://assets/skills/skill_icon_07.png	blue	physical	active	instant	line	enemy	40	0	0	0	false	0.5	3	15			physical,dash,mobility	向鼠标方向突进，路径上造成伤害。
+quake_rush	裂地冲	res://assets/skills/skill_icon_08.png	purple	physical	active	instant	line	enemy	65	60	0	3	false	0.5	5	20	trail_dps_mult=0.4;trail_secs=3.0		physical,dash,dot	突进后留下一道裂痕，持续伤害敌人。
+storm_hammer	风暴之锤	res://assets/skills/skill_icon_20.png	blue	physical	active	instant	line	enemy	55	0	0	0	false	0.5	7	20	stun=1.5;stun_double_if_frozen=true		physical,dash,control	向鼠标方向投锤，命中眩晕1.5s；对冻结目标眩晕翻倍。
+blink	闪烁	res://assets/skills/skill_icon_07.png	blue	arcane	active	instant	line	enemy	0	0	0	0	false	0.5	4	15	blink_only=true		arcane,dash,mobility	瞬移短距离，无伤害。
+hex	妖术	res://assets/skills/skill_icon_16.png	purple	shadow	active	instant	projectile	enemy	30	0	0	0	false	0.5	14	35	hex=3.0;slow=0.3		shadow,control	投射妖术，命中的敌人失控3秒并减速。
+storm_orb	风暴核	res://assets/skills/skill_icon_09.png	white	lightning	active	instant	projectile	enemy	35	0	0	0	false	0.5	5	20			lightning,projectile	射出缓慢移动的能量球，穿透敌人。
+soul_chain	魂链	res://assets/skills/skill_icon_10.png	blue	shadow	active	instant	projectile	enemy	45	0	0	0	false	0.5	8	20	chain=3;chain_dir=true		shadow,projectile,control	锁定鼠标方向最近3个敌人，连锁伤害。
+void_arrow	湮灭矢	res://assets/skills/skill_icon_11.png	purple	shadow	active	instant	projectile	enemy	70	0	0	0	false	0.5	6	30	projectile_mult=1.5		shadow,projectile	射出一支穿透强力箭矢，首目标额外伤害。
+mana_blast	法力爆破	res://assets/skills/skill_icon_10.png	purple	arcane	active	instant	projectile	enemy	2.5	0	0	0	false	0.5	8	0	consume_all_energy=true;energy_dmg_ratio=2.5		arcane,projectile	消耗全部剩余能量，伤害=消耗量×2.5。
+chain_lightning	闪电链	res://assets/skills/skill_icon_02.png	blue	lightning	active	instant	projectile	enemy	55	0	0	0	false	0.5	7	25	chain=4;chain_dir=true		lightning,projectile	闪电在多个目标间弹射。
+impale	穿刺	res://assets/skills/skill_icon_06.png	blue	physical	active	instant	projectile	enemy	60	0	0	0	false	0.5	9	25	line_stun=1.2		physical,projectile,control	直线穿刺，挑飞并眩晕敌人。
+holy_light	神圣之光	res://assets/skills/skill_icon_12.png	blue	holy	active	instant	projectile	both	60	0	0	0	false	0.5	6	25	heal=1.0		holy,projectile,heal	对敌人造成神圣伤害，对友军(玩家+召唤物)治疗。
+death_coil	死亡缠绕	res://assets/skills/skill_icon_11.png	blue	shadow	active	instant	projectile	both	70	0	0	0	false	0.5	6	30	heal=1.0		shadow,projectile,heal	伤敌/治友的暗影能量。
+water_elemental	水元素	res://assets/skills/skill_icon_17.png	blue	ice	active	instant	summon	enemy	0	0	0	0	false	0.5	20	40	count=1;hp=200.0;dmg=22.0;speed=180.0;summon_secs=30.0		ice,summon	召唤一只水元素协同作战。
+summon_wolf	幽狼召唤	res://assets/skills/skill_icon_08.png	blue	summon	active	instant	summon	enemy	0	0	0	30	false	0.5	10	25	count=1;hp=140.0;dmg=25.0;speed=230.0;summon_secs=30.0		summon	召唤一只幽狼协同作战。
+battle_frenzy	战斗狂热	res://assets/skills/skill_icon_06.png	purple	physical	active	instant	none	self	0	0	0	0	false	0.5	12	30	buff_stat=damage_pct,1.3,8		physical,buff	激发战意，自身伤害提升30%，持续8秒。
+thorns_ward	荆棘之盾	res://assets/skills/skill_icon_15.png	blue	arcane	active	instant	none	self	0	0	0	0	false	0.5	12	25	reflect=0.35,6		arcane,buff	获得荆棘护盾，反弹受到伤害的35%，持续6秒。
+chain_bolt	连锁闪电	res://assets/skills/skill_icon_02.png	purple	lightning	active	instant	projectile	enemy	45	0	0	0	false	0.5	8	25	chain=4;chain_dir=true		lightning,projectile,offense,control	发射连锁闪电，在敌人间弹射4次（对标霹雳闪电）。
+carrion_rush	腐臭突进	res://assets/skills/skill_icon_11.png	blue	shadow	active	instant	line	enemy	35	0	0	0	false	0.5	6	20	trail_dps_mult=1.0;trail_secs=2.0;line_stun=1.2		shadow,dash,offense,control	朝鼠标突进，留下2秒伤害路径并挑飞（对标腐臭蜂群）。
+serpent_ward	蛇杖	res://assets/skills/skill_icon_17.png	blue	summon	active	instant	summon	enemy	0	0	0	0	false	0.5	14	30	count=1;hp=200.0;dmg=22.0;speed=180.0;summon_secs=30.0		summon,offense	召唤蛇杖协同作战（对标蛇棒）。
+skeleton_minion	骷髅仆从	res://assets/skills/skill_icon_08.png	blue	summon	active	instant	summon	enemy	0	0	0	0	false	0.5	10	25	count=2;hp=120.0;dmg=18.0;speed=200.0;summon_secs=20.0		summon,offense	召唤2只骷髅仆从（对标黑暗之箭）。

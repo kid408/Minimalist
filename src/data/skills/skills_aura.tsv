@@ -1,0 +1,17 @@
+# 光环/被动类（Aura）：放入技能槽即常驻生效，无需释放、不消耗能量
+# effects: aura_stat=属性名; aura_value=数值
+# 可用 aura_stat：damage_pct / move_speed_pct / attack_speed_pct / lifesteal / hp_regen
+id	name	icon	quality	school	cast_type	cast_mode	shape	target_side	damage	radius	range	duration	ground	tick_interval	cooldown	energy_cost	effects	augment_effects	tags	description
+lifesteal_aura	吸血光环	res://assets/skills/skill_icon_11.png	blue	lifesteal	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=lifesteal;aura_value=0.15		lifesteal,aura,passive	常驻：造成伤害的15%转化为治疗。
+command_aura	命令光环	res://assets/skills/skill_icon_20.png	blue	physical	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=damage_pct;aura_value=0.15		physical,aura,passive	常驻：所有伤害提升15%。
+swift_aura	迅捷光环	res://assets/skills/skill_icon_07.png	white	nature	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=move_speed_pct;aura_value=0.15		nature,aura,passive	常驻：移动速度提升15%。
+trueshot_aura	强击光环	res://assets/skills/skill_icon_09.png	purple	physical	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=attack_speed_pct;aura_value=0.2		physical,aura,passive	常驻：攻击速度提升20%。
+devotion_aura	虔诚光环	res://assets/skills/skill_icon_15.png	blue	holy	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=hp_regen;aura_value=6.0		holy,aura,passive	常驻：每秒回复6点生命。
+brilliance_aura	辉煌光环	res://assets/skills/skill_icon_15.png	blue	arcane	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=mana_regen;aura_value=8.0		arcane,aura,passive	常驻：每秒回复8点能量（对标辉煌光环）。
+slow_aura	减速光环	res://assets/skills/skill_icon_00.png	blue	ice	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=slow;aura_value=0.15		ice,aura,passive,control	常驻：范围内敌人减速15%（对标减速光环）。
+endurance_aura	耐久光环	res://assets/skills/skill_icon_07.png	blue	physical	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=attack_speed_pct;aura_value=0.15		physical,aura,passive	常驻：攻击速度提升15%（对标耐久光环）。
+hardened_aura	硬化光环	res://assets/skills/skill_icon_20.png	blue	physical	active	aura	none	self	0	0	0	0	false	1	0	0	aura_stat=damage_reduce;aura_value=0.2		physical,aura,passive	常驻：受到伤害降低20%（对标硬化皮肤）。
+evasion_passive	闪避	res://assets/skills/skill_icon_16.png	purple	physical	passive	aura	none	self	0	0	0	0	false	1	0	0	evasion=0.25		passive,defensive	被动：25%几率完全闪避一次伤害（对标闪避）。
+crit_passive	致命一击	res://assets/skills/skill_icon_06.png	purple	physical	passive	aura	none	self	0	0	0	0	false	1	0	0	crit_chance=0.2;crit_mult=2.0		passive,offense	被动：20%几率造成双倍伤害（对标致命一击）。
+cleave_passive	分裂	res://assets/skills/skill_icon_09.png	blue	physical	passive	aura	none	self	0	0	0	0	false	1	0	0	cleave=0.5		passive,offense	被动：命中时对周围敌人造成50%溅射伤害（对标分裂）。
+rebirth_passive	重生	res://assets/skills/skill_icon_18.png	orange	nature	passive	aura	none	self	0	0	0	0	false	1	0	0	reincarnate=1		passive,defensive	被动：死亡时原地复活一次，恢复60%生命（对标重生）。

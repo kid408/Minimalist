@@ -1,0 +1,13 @@
+id	stat	hp_per	dmg_per	speed_per	desc
+# 召唤随属性成长配置表（对标《恐怖丛林生存》1.35 召唤随英雄属性成长特性）
+# 召唤物最终属性 = 技能 effects 里的固定值(hp/dmg/speed) + Σ( 属性总值 × per )
+#   id        : 召唤技能 id（对应 skills_instant.tsv 中 shape=summon 的技能）
+#   stat      : 驱动成长的属性名，取 str/agi/int/vit/luk 之一
+#   hp_per    : 每点属性提供的额外最大生命
+#   dmg_per   : 每点属性提供的额外攻击伤害
+#   speed_per : 每点属性提供的额外移动速度（通常留 0）
+#   desc      : 备注
+# 未单独配置的召唤技能回退到 default 行；一行只配一个属性，可多行组合多个属性。
+serpent_ward	int	8	2.0	0	蛇杖随智力成长（对标丛林智力流蛇棒）
+skeleton_minion	str	6	2.5	0	骷髅仆从随力量成长（对标丛林黑暗之箭）
+default	agi	4	1.5	0	未单独配置的召唤物按敏捷成长

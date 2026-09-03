@@ -1,0 +1,10 @@
+# 点地类技能（Point Target）：按下预览落点圆，松开在鼠标处结算
+# ground=true 时在落点生成持续伤害区域（effects: ground_dps_mult / ground_secs）
+id	name	icon	quality	school	cast_type	cast_mode	shape	target_side	damage	radius	range	duration	ground	tick_interval	cooldown	energy_cost	effects	augment_effects	tags	description
+shock_burst	震荡爆	res://assets/skills/skill_icon_03.png	white	physical	active	point	circle	enemy	40	130	600	0	false	0.5	10	30	knockback=200.0	knockback=120.0	physical,aoe	鼠标位置小范围爆炸，击退敌人。
+ember_rain	余烬雨	res://assets/skills/skill_icon_04.png	blue	fire	active	point	circle	enemy	60	130	600	3	true	0.5	14	35	ground_dps_mult=0.4;ground_secs=3.0		fire,aoe,dot	鼠标位置降下火焰雨，持续3秒。
+arc_burst	弧光爆发	res://assets/skills/skill_icon_05.png	purple	lightning	active	point	circle	enemy	90	150	600	0	false	0.5	12	40	core_multiplier=2.0		lightning,aoe	鼠标位置大型能量爆发，中心伤害翻倍。
+death_decay	死亡凋零	res://assets/skills/skill_icon_19.png	purple	shadow	active	point	circle	enemy	0.06	140	600	3	false	0.5	18	45	dot_pct_maxhp=0.06		shadow,aoe,dot	鼠标位置造成最大生命6%/秒伤害，持续3秒。Boss不衰减。
+blizzard	暴风雪	res://assets/skills/skill_icon_02.png	blue	ice	active	point	circle	enemy	40	160	600	3	true	0.5	12	35	ground_dps_mult=1.0;ground_secs=3.0		ice,aoe,dot	指定区域持续降下冰锥，分区造成伤害。
+flamestrike	烈焰风暴	res://assets/skills/skill_icon_04.png	blue	fire	active	point	circle	enemy	50	150	600	3	true	0.5	12	35	ground_dps_mult=1.0;ground_secs=3.0		fire,aoe,dot	指定位置延迟爆炸，并持续燃烧。
+storm_burst	风暴爆	res://assets/skills/skill_icon_03.png	blue	lightning	active	point	circle	enemy	50	150	600	3	true	0.5	14	35	ground_dps_mult=0.4;ground_secs=3.0		lightning,aoe,control	鼠标位置降下风暴，持续3秒区域伤害（对标暴风雨）。

@@ -1,0 +1,13 @@
+# 单体目标类技能（Unit Target）：按下进入选取态，点击一个单位才结算
+# target_side=enemy 只能选敌人，ally 只能选自己/召唤物
+id	name	icon	quality	school	cast_type	cast_mode	shape	target_side	damage	radius	range	duration	ground	tick_interval	cooldown	energy_cost	effects	augment_effects	tags	description
+crush_hammer	粉碎锤	res://assets/skills/skill_icon_20.png	blue	physical	active	unit_target	target	enemy	80	0	600	0	false	0.5	10	30	stun=1.8		physical,control,single	选中一个敌人，造成80伤害并眩晕1.8秒。
+polymorph	妖术变羊	res://assets/skills/skill_icon_16.png	purple	shadow	active	unit_target	target	enemy	0	0	600	0	false	0.5	14	35	polymorph=2.5		shadow,control,single	选中敌人使其变羊失控2.5秒，无法行动。
+frost_curse	冰霜诅咒	res://assets/skills/skill_icon_00.png	blue	ice	active	unit_target	target	enemy	20	0	600	0	false	0.5	8	20	slow=0.5;freeze=0.5		ice,debuff,single	选中敌人施加50%减速并短暂冻结。
+healing_touch	治疗之触	res://assets/skills/skill_icon_12.png	blue	holy	active	unit_target	target	ally	0	0	600	0	false	0.5	6	25	heal_amount=120.0		holy,heal,single	选中友军（含自身与召唤物）治疗120点。
+entangle	缠绕根须	res://assets/skills/skill_icon_14.png	blue	nature	active	unit_target	target	enemy	35	0	600	0	false	0.5	9	25	root=2.5		nature,control,single	选中敌人将其定身2.5秒并造成伤害。
+corruption	腐化诅咒	res://assets/skills/skill_icon_11.png	purple	shadow	active	unit_target	target	enemy	20	0	600	0	false	0.5	10	30	dot=25,4,shadow		shadow,dot,single	选中敌人施加暗影腐蚀：每秒25点持续伤害，持续4秒。
+shatter_armor	破甲击	res://assets/skills/skill_icon_06.png	blue	physical	active	unit_target	target	enemy	60	0	600	0	false	0.5	10	30	armor_break=1.5,5		physical,debuff,single	选中敌人破甲，受到的所有伤害提高50%，持续5秒。
+void_pull	虚空牵引	res://assets/skills/skill_icon_11.png	purple	arcane	active	unit_target	target	enemy	30	0	600	0	false	0.5	8	25	pull=400		arcane,control,single	选中敌人将其瞬间拉向自己（400像素）。
+holy_smite	神圣惩击	res://assets/skills/skill_icon_12.png	purple	holy	active	unit_target	target	enemy	90	0	600	0	false	0.5	10	30	stun=1.8		holy,control,single,offense	对单体造成高额伤害并眩晕，适合打Boss（对标神圣之光/酸性炸弹）。
+arcane_shield	魔法护盾	res://assets/skills/skill_icon_15.png	blue	arcane	active	unit_target	target	ally	0	0	600	0	false	0.5	12	30	shield=150.0;buff_secs=8.0		arcane,buff,single	为友军附加150点吸收护盾（对标魔法盾）。

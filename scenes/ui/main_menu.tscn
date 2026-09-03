@@ -1,0 +1,104 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/ui/main_menu.gd" id="1"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Shade" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.03, 0.05, 0.08, 0.96)
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 80.0
+offset_right = 1020.0
+offset_bottom = 136.0
+text = "Minimalist Build"
+theme_override_font_sizes/font_size = 36
+
+[node name="Subtitle" type="Label" parent="."]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 150.0
+offset_right = 1120.0
+offset_bottom = 230.0
+text = "俯视角割草RPG · 灵感来自恐怖丛林生存"
+theme_override_font_sizes/font_size = 20
+autowrap_mode = 2
+
+[node name="Hint" type="Label" parent="."]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 250.0
+offset_right = 1120.0
+offset_bottom = 370.0
+text = "WASD移动 · Space交互/拾取 · 1-6释放技能 · 鼠标右键移动/标记敌人
+掉落物靠近自动显示名字 · 仓库拖拽到技能/装备槽 · 地图上自己找商人
+6技能槽(主技能+融合增益) + 6装备槽 + 6仓库槽"
+autowrap_mode = 2
+
+[node name="HeroCard" type="Button" parent="."]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 380.0
+offset_right = 520.0
+offset_bottom = 620.0
+text = ""
+focus_mode = 0
+
+[node name="CardContent" type="VBoxContainer" parent="HeroCard"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+
+[node name="HeroName" type="Label" parent="HeroCard/CardContent"]
+layout_mode = 2
+text = "英雄"
+theme_override_font_sizes/font_size = 26
+
+[node name="HeroDesc" type="Label" parent="HeroCard/CardContent"]
+layout_mode = 2
+text = "描述"
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 16
+
+[node name="HeroStats" type="Label" parent="HeroCard/CardContent"]
+layout_mode = 2
+text = "属性"
+theme_override_font_sizes/font_size = 15
+
+[node name="StartHint" type="Label" parent="HeroCard/CardContent"]
+layout_mode = 2
+text = "→ 点击进入丛林"
+theme_override_font_sizes/font_size = 18
+modulate = Color(0.6, 1, 0.6, 1)
+
+[node name="Footer" type="Label" parent="."]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 670.0
+offset_right = 1120.0
+offset_bottom = 750.0
+text = "属性：力量(近战伤害) 敏捷(移速+攻速) 智力(远程伤害+回能) 生命(HP) 幸运(掉落品质)
+升级技能/删除技能/购买装备 → 在商人处"
+autowrap_mode = 2
