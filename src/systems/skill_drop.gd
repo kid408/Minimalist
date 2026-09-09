@@ -15,6 +15,8 @@ func _init(data: Dictionary) -> void:
 	item_type = "equipment" if cast_type.is_empty() else "skill"
 
 func _ready() -> void:
+	collision_layer = 0
+	collision_mask = 1
 	var tex := _load_icon(String(item_data.get("icon", "")))
 	if tex:
 		var sprite := Sprite2D.new()
@@ -69,13 +71,15 @@ func _draw() -> void:
 		var font := ThemeDB.fallback_font
 		draw_string(font, Vector2(-50, -30), "%s · %s" % [name_txt, type_txt], HORIZONTAL_ALIGNMENT_CENTER, 100, 12)
 
-func _on_body_entered(_body: Node2D) -> void:
-	_player_near = true
-	queue_redraw()
+func _on_body_entered(body: Node2D) -> void:
+	if body is Player:
+		_player_near = true
+		queue_redraw()
 
-func _on_body_exited(_body: Node2D) -> void:
-	_player_near = false
-	queue_redraw()
+func _on_body_exited(body: Node2D) -> void:
+	if body is Player:
+		_player_near = false
+		queue_redraw()
 
 func _process(delta: float) -> void:
 	# 距离兜底：不用 body_entered 也检测玩家距离

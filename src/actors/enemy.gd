@@ -1,6 +1,8 @@
 extends CharacterBody2D
 class_name Enemy
 
+const GameData = preload("res://src/data/game_data.gd")
+
 enum EnemyType { NORMAL, ELITE, BOSS }
 enum Behavior { MELEE, RANGED, CHARGER, EXPLODER }
 
@@ -22,7 +24,14 @@ var spawn_origin: Vector2 = Vector2.ZERO
 # -- 追踪 / 脱战
 var chase_target: Node2D = null
 var chase_range: float = 600.0   # 冲撞者冲刺最大半径
+var home_leash: float = 520.0
+var reengage_range: float = 340.0
+var returning_home := false
 var hit_stun_remaining: float = 0.0
+var _path_points: PackedVector2Array = PackedVector2Array()
+var _path_index := 0
+var _path_goal := Vector2.ZERO
+var _path_repath_remaining := 0.0
 
 # -- 状态效果（控制/减益通用）：二进制状态名 -> 剩余秒数
 var statuses: Dictionary = {}        # "root"/"sleep"/"hex"/"silence"/"banish" -> 剩余秒
@@ -40,7 +49,7 @@ var dot_school: String = "physical"
 
 # -- 特殊行为计时器
 var charger_cooldown: float = 0.0
-var charger_dash_speed: float = 450.0
+var charger_dash_speed: float = 410.0
 var charger_dashing: bool = false
 var ranged_cooldown: float = 0.0
 var ranged_attack_range: float = 350.0
@@ -48,9 +57,13 @@ var ranged_attack_range: float = 350.0
 # -- 视觉
 const KNOCKBACK_DECAY: float = 6.0
 const COLOR_FLASH_DURATION: float = 0.08
+const MELEE_ATTACK_RANGE: float = 52.0
 var flash_timer: float = 0.0
 var original_modulate: Color = Color.WHITE
 var health_bar: ColorRect
+var visual_texture_path := "res://assets/enemies/enemy_1.png"
+var visual_scale := GameData.get_enemy_visual_scale("normal")
+var health_bar_color := Color(1, 0.2, 0.2)
 
 # -- 难度缩放（由 arena 设置）
 var difficulty_scale: float = 1.0
@@ -60,39 +73,62 @@ var world_ref: Node = null
 
 func _ready() -> void:
 	original_modulate = modulate
-	var tex := load("res://assets/enemies/enemy_1.png") as Texture2D
+	add_to_group("enemy")
+	collision_layer = 2
+	collision_mask = 1 | 4 | 8
+
+	var collision := CollisionShape2D.new()
+	collision.name = "BodyCollision"
+	var shape := CircleShape2D.new()
+	shape.radius = _collision_radius()
+	collision.shape = shape
+	add_child(collision)
+
+	var tex := load(visual_texture_path) as Texture2D
 	if tex:
 		var sprite := Sprite2D.new()
 		sprite.name = "BodySprite"
 		sprite.texture = tex
-		sprite.scale = Vector2(0.55, 0.55)
+		sprite.scale = visual_scale
 		add_child(sprite)
 
 	var bar_bg := ColorRect.new()
 	bar_bg.name = "HealthBarBg"
+	bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar_bg.color = Color(0.15, 0.05, 0.05, 0.8)
 	bar_bg.size = Vector2(32, 4)
 	bar_bg.position = Vector2(-16, -30)
 	add_child(bar_bg)
 
 	health_bar = ColorRect.new()
+	health_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	health_bar.size = Vector2(32, 4)
 	health_bar.position = Vector2(-16, -30)
-	health_bar.color = Color(1, 0.2, 0.2)
+	health_bar.color = health_bar_color
 	add_child(health_bar)
 
-func _set_enemy_type_bar_color(enemy_type: int) -> void:
-	if not health_bar: return
+func _collision_radius() -> float:
 	match enemy_type:
-		EnemyType.ELITE: health_bar.color = Color(1, 0.55, 0.15)
-		EnemyType.BOSS: health_bar.color = Color(0.8, 0.2, 0.9)
-		_: health_bar.color = Color(1, 0.2, 0.2)
+		EnemyType.ELITE: return 16.0
+		EnemyType.BOSS: return 20.0
+	return 14.0
+
+func _set_enemy_type_bar_color(new_enemy_type: int) -> void:
+	match new_enemy_type:
+		EnemyType.ELITE: health_bar_color = Color(1, 0.55, 0.15)
+		EnemyType.BOSS: health_bar_color = Color(0.8, 0.2, 0.9)
+		_: health_bar_color = Color(1, 0.2, 0.2)
+	if health_bar:
+		health_bar.color = health_bar_color
 
 func _update_texture(texture_path: String) -> void:
+	visual_texture_path = texture_path
 	var tex := load(texture_path) as Texture2D
-	if not tex: return
+	if not tex:
+		return
 	var sprite := get_node_or_null("BodySprite") as Sprite2D
-	if sprite: sprite.texture = tex
+	if sprite:
+		sprite.texture = tex
 
 func setup(base_hp: float, move_speed: float, atk_damage: float, atk_interval: float) -> void:
 	hp = base_hp
@@ -117,6 +153,30 @@ func take_damage(amount: float, knockback_dir: Vector2 = Vector2.ZERO, kb_streng
 
 func is_dead() -> bool:
 	return hp <= 0.0
+
+func _path_direction_to(destination: Vector2, delta: float) -> Vector2:
+	if global_position.distance_to(destination) <= 4.0:
+		return Vector2.ZERO
+	_path_repath_remaining = maxf(_path_repath_remaining - delta, 0.0)
+	if world_ref != null and world_ref.has_method("get_path_for_unit"):
+		if _path_points.is_empty() or _path_repath_remaining <= 0.0 or _path_goal.distance_to(destination) > 72.0:
+			var result: Variant = world_ref.call("get_path_for_unit", global_position, destination)
+			if result is PackedVector2Array:
+				_path_points = result
+				_path_index = 0
+				_path_goal = destination
+				_path_repath_remaining = 0.35
+	while _path_index < _path_points.size() and global_position.distance_to(_path_points[_path_index]) <= 20.0:
+		_path_index += 1
+	var waypoint := destination
+	if _path_index < _path_points.size():
+		waypoint = _path_points[_path_index]
+	return global_position.direction_to(waypoint)
+
+func _has_line_of_sight(target_position: Vector2) -> bool:
+	if world_ref != null and world_ref.has_method("has_line_of_sight"):
+		return bool(world_ref.call("has_line_of_sight", global_position, target_position))
+	return true
 
 # ============================================================
 # 状态效果系统
@@ -229,20 +289,26 @@ func _physics_process(delta: float) -> void:
 	charger_cooldown = maxf(charger_cooldown - delta, 0.0)
 	ranged_cooldown = maxf(ranged_cooldown - delta, 0.0)
 
-	# 探测玩家
+	# 探测玩家与营地边界：越过领地后先完整回巢，玩家进入回接区才重新接战。
 	var target := chase_target
 	if target == null or not is_instance_valid(target):
 		_brain_return_to_origin(delta)
 		return
+	if returning_home:
+		if target.global_position.distance_to(spawn_origin) <= reengage_range:
+			returning_home = false
+		else:
+			_brain_return_to_origin(delta)
+			return
+	if global_position.distance_to(spawn_origin) > home_leash:
+		returning_home = true
+		_brain_return_to_origin(delta)
+		return
 
 	var dist := global_position.distance_to(target.global_position)
-
-	# 玩家足够近（进入探测范围）→ 转入追击
 	if dist <= detection_range:
 		_brain_chase(delta, target, dist)
 		return
-
-	# 玩家跑远 → 返回出生点（之前的位置）待命
 	_brain_return_to_origin(delta)
 
 
@@ -254,7 +320,7 @@ func _separation_vector() -> Vector2:
 	# 优先使用 WorldSystem 的空间网格做邻近查询（避免 O(n^2) 全表遍历）
 	var others: Array = []
 	if world_ref != null and world_ref.has_method("query_nearby_enemies"):
-		others = world_ref.query_nearby_enemies(global_position, 32.0)
+		others = world_ref.query_nearby_enemies(global_position, 34.0)
 	var parent := get_parent()
 	if others.is_empty() and parent != null:
 		others = parent.get_children()
@@ -262,8 +328,8 @@ func _separation_vector() -> Vector2:
 		if other == self or not (other is Enemy) or other.is_dead():
 			continue
 		var d := global_position.distance_to(other.global_position)
-		if d > 0.01 and d < 30.0:
-			push += (global_position - other.global_position).normalized() * (30.0 - d)
+		if d > 0.01 and d < 34.0:
+			push += (global_position - other.global_position).normalized() * (34.0 - d)
 	return push * 8.0
 
 # ============================================================
@@ -278,10 +344,13 @@ func _brain_return_to_origin(delta: float) -> void:
 		return
 
 	var dist := global_position.distance_to(spawn_origin)
-	if dist > 4.0:
-		var dir := global_position.direction_to(spawn_origin)
+	if dist > 8.0:
+		var dir := _path_direction_to(spawn_origin, delta)
 		velocity = dir * speed * 0.6 * slow_mult + sep
 	else:
+		returning_home = false
+		_path_points.clear()
+		_path_index = 0
 		velocity = velocity.move_toward(Vector2.ZERO, speed * 2.0 * delta) + sep
 	move_and_slide()
 
@@ -290,7 +359,7 @@ func _brain_return_to_origin(delta: float) -> void:
 # 追击 + 攻击
 # ============================================================
 func _brain_chase(delta: float, target: Node2D, dist: float) -> void:
-	var direction := global_position.direction_to(target.global_position)
+	var direction := _path_direction_to(target.global_position, delta)
 
 	match behavior:
 		Behavior.MELEE:
@@ -311,21 +380,17 @@ func _chase_melee(delta: float, dir: Vector2, dist: float) -> void:
 	if has_status("root"):
 		velocity = velocity.move_toward(Vector2.ZERO, spd * 4.0 * delta) + sep
 		move_and_slide()
-		if dist <= 36.0 and attack_timer <= 0.0:
+		if dist <= MELEE_ATTACK_RANGE and _has_line_of_sight(chase_target.global_position) and attack_timer <= 0.0:
 			attack_timer = attack_interval
-		if attack_timer > 0.0:
-			attack_timer -= delta
 		return
-	if dist > 36.0:
+	if dist > MELEE_ATTACK_RANGE:
 		velocity = dir * spd + sep
 		move_and_slide()
 	else:
 		velocity = velocity.move_toward(Vector2.ZERO, spd * 4.0 * delta) + sep
 		move_and_slide()
-		if attack_timer <= 0.0:
+		if _has_line_of_sight(chase_target.global_position) and attack_timer <= 0.0:
 			attack_timer = attack_interval
-	if attack_timer > 0.0:
-		attack_timer -= delta
 
 
 # --- 远程 ---
@@ -336,10 +401,8 @@ func _chase_ranged(delta: float, dir: Vector2, dist: float) -> void:
 	if has_status("root"):
 		velocity = velocity.move_toward(Vector2.ZERO, spd * 3.0 * delta) + sep
 		move_and_slide()
-		if (not has_status("silence")) and dist <= ranged_attack_range and ranged_cooldown <= 0.0:
-			_fire_ranged_projectile(dir)
-		if attack_timer > 0.0:
-			attack_timer -= delta
+		if (not has_status("silence")) and dist <= ranged_attack_range and _has_line_of_sight(chase_target.global_position) and ranged_cooldown <= 0.0:
+			_fire_ranged_projectile(global_position.direction_to(chase_target.global_position))
 		return
 	var ideal_dist := ranged_attack_range * 0.7
 	if dist > ideal_dist + 20:
@@ -349,11 +412,9 @@ func _chase_ranged(delta: float, dir: Vector2, dist: float) -> void:
 	else:
 		velocity = velocity.move_toward(Vector2.ZERO, spd * 3.0 * delta) + sep
 	# Warcraft 式：只要在射程内就持续开火（即便后撤中也打）
-	if dist <= ranged_attack_range and ranged_cooldown <= 0.0 and not has_status("silence"):
-		_fire_ranged_projectile(dir)
+	if dist <= ranged_attack_range and _has_line_of_sight(chase_target.global_position) and ranged_cooldown <= 0.0 and not has_status("silence"):
+		_fire_ranged_projectile(global_position.direction_to(chase_target.global_position))
 	move_and_slide()
-	if attack_timer > 0.0:
-		attack_timer -= delta
 
 
 func _fire_ranged_projectile(dir: Vector2) -> void:
@@ -365,6 +426,12 @@ func _fire_ranged_projectile(dir: Vector2) -> void:
 	proj.lifetime = 2.5
 	proj.speed *= 0.7
 	proj.pierce_count = 1
+	proj.faction = Projectile.Faction.ENEMY
+	proj.attacker = self
+	proj.collision_layer = 0
+	proj.collision_mask = 1 | 8
+	if world_ref != null and world_ref.has_method("_resolve_enemy_projectile_hit"):
+		proj.hit_resolver = Callable(world_ref, "_resolve_enemy_projectile_hit")
 	var collision := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
 	shape.radius = 8.0
@@ -386,8 +453,6 @@ func _chase_charger(delta: float, dir: Vector2, dist: float) -> void:
 	if has_status("root") or has_status("silence"):
 		velocity = velocity.move_toward(Vector2.ZERO, speed * slow_mult * 4.0 * delta) + sep
 		move_and_slide()
-		if attack_timer > 0.0:
-			attack_timer -= delta
 		return
 	if charger_dashing:
 		# 冲刺中
@@ -403,14 +468,12 @@ func _chase_charger(delta: float, dir: Vector2, dist: float) -> void:
 		modulate = Color.ORANGE
 		return
 
-	if dist > 50.0:
+	if dist > MELEE_ATTACK_RANGE:
 		velocity = dir * speed + sep
 	else:
 		velocity = velocity.move_toward(Vector2.ZERO, speed * 4.0 * delta) + sep
-		if attack_timer <= 0.0:
+		if _has_line_of_sight(chase_target.global_position) and attack_timer <= 0.0:
 			attack_timer = attack_interval
-	if attack_timer > 0.0:
-		attack_timer -= delta
 	move_and_slide()
 
 
@@ -419,19 +482,21 @@ func _chase_charger(delta: float, dir: Vector2, dist: float) -> void:
 # ============================================================
 func play_death_animation() -> void:
 	set_physics_process(false)
+	collision_layer = 0
+	collision_mask = 0
+	var body_collision := get_node_or_null("BodyCollision") as CollisionShape2D
+	if body_collision:
+		body_collision.set_deferred("disabled", true)
 	velocity = Vector2.ZERO
 	hit_stun_remaining = 0.0
 	if health_bar: health_bar.visible = false
 	var bar_bg := get_node_or_null("HealthBarBg")
 	if bar_bg: bar_bg.visible = false
 
-	# 自爆虫：爆炸伤害周围
-	if behavior == Behavior.EXPLODER:
-		for sibling in get_parent().get_children():
-			if sibling is CharacterBody2D and sibling != self:
-				if sibling.global_position.distance_to(global_position) < 80.0:
-					if sibling.has_method("take_damage"):
-						sibling.take_damage(damage * 2.0, Vector2.ZERO, 0)
+	# 自爆虫：在英雄附近死亡时走统一受伤管线，避免伤害到同阵营敌人。
+	if behavior == Behavior.EXPLODER and world_ref != null and world_ref.has_method("_deal_damage_to_player"):
+		if chase_target != null and is_instance_valid(chase_target) and chase_target.global_position.distance_to(global_position) < 80.0:
+			world_ref.call("_deal_damage_to_player", damage * 2.0, self)
 
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(self, "modulate", Color.WHITE, 0.06)

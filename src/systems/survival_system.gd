@@ -124,4 +124,5 @@ func _apply_threat_scale() -> void:
 			var ratio := new_scale / applied  # 仅按倍率差增量缩放，避免重复乘算
 			e.max_hp = int(float(e.max_hp) * ratio)
 			e.hp = minf(float(e.hp) * ratio, float(e.max_hp))
+			e.damage *= ratio
 			e.set_meta("threat_scale", new_scale)

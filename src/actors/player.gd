@@ -6,16 +6,27 @@ const MAX_ENERGY := 100.0
 const ENERGY_REGEN_BASE := 5.0
 
 func _ready() -> void:
+	add_to_group("player")
+	collision_layer = 1
+	collision_mask = 2 | 4 | 8
+
+	var collision := CollisionShape2D.new()
+	collision.name = "BodyCollision"
+	var shape := CircleShape2D.new()
+	shape.radius = 18.0
+	collision.shape = shape
+	add_child(collision)
+
 	var hero_tex := load("res://assets/players/Player_1.png") as Texture2D
 	if hero_tex:
 		var sprite := Sprite2D.new()
 		sprite.name = "BodySprite"
 		sprite.texture = hero_tex
-		sprite.scale = Vector2(0.5, 0.5)
+		sprite.scale = GameData.get_player_visual_scale()
 		add_child(sprite)
 
-var hp: float = 140.0
-var max_hp: float = 140.0
+var hp: float = 180.0
+var max_hp: float = 180.0
 var energy: float = 100.0
 var base_energy_max: float = MAX_ENERGY
 
@@ -173,8 +184,8 @@ func get_equipment_ids() -> Array:
 
 func init_from_hero(hero_data: Dictionary) -> void:
 	base_stats = GameData.get_base_stats()
-	hp = hero_data.get("base_hp", 140.0)
-	max_hp = hp
+	max_hp = max_hp_calc()
+	hp = max_hp
 	energy = MAX_ENERGY
 	base_move_speed = hero_data.get("move_speed", 290.0)
 	base_attack_damage = hero_data.get("attack_damage", 24.0)

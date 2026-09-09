@@ -10,7 +10,7 @@ var _player_ref: Node2D
 var _fog_rect: ColorRect
 var _mat: ShaderMaterial
 
-func init(player_node: Node2D, fog_radius: float) -> void:
+func init(player_node: Node2D, fog_radius: float, clear_ratio: float = 0.45) -> void:
 	_player_ref = player_node
 	z_index = 50
 	# 着色器：整张地图盖灰色雾，玩家周围挖空
@@ -20,11 +20,13 @@ func init(player_node: Node2D, fog_radius: float) -> void:
 	_mat.shader = shader
 	_mat.set_shader_parameter("player_pos", player_node.global_position)
 	_mat.set_shader_parameter("radius", fog_radius)
+	_mat.set_shader_parameter("clear_ratio", clear_ratio)
 	_mat.set_shader_parameter("map_center", Arena.MAP_CENTER)
 	_mat.set_shader_parameter("map_size", Vector2(Arena.MAP_WIDTH, Arena.MAP_HEIGHT))
-	_mat.set_shader_parameter("fog_color", Color(0.16, 0.17, 0.2, 1.0))
+	_mat.set_shader_parameter("fog_color", Color(0.08, 0.10, 0.14, 0.82))
 	# 铺满整张地图的雾面（ColorRect 不需要贴图，避免贴图创建失败）
 	_fog_rect = ColorRect.new()
+	_fog_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fog_rect.color = Color(1, 1, 1, 1)
 	_fog_rect.position = Arena.MAP_CENTER - Vector2(Arena.MAP_WIDTH, Arena.MAP_HEIGHT) * 0.5
 	_fog_rect.size = Vector2(Arena.MAP_WIDTH, Arena.MAP_HEIGHT)
@@ -41,6 +43,7 @@ func _fog_shader_code() -> String:
 	return """shader_type canvas_item;
 uniform vec2 player_pos;
 uniform float radius;
+uniform float clear_ratio;
 uniform vec2 map_center;
 uniform vec2 map_size;
 uniform vec4 fog_color;
@@ -48,8 +51,8 @@ uniform vec4 fog_color;
 void fragment() {
 	vec2 world = map_center + (UV - vec2(0.5)) * map_size;
 	float d = distance(world, player_pos);
-	// 中心清晰，外圈渐变为灰色迷雾（内 18% 完全清晰，半径除零保护）
-	float a = smoothstep(0.18, 1.0, d / max(radius, 1.0));
+	// 中心清晰，外圈渐变为灰色迷雾（半径除零保护）
+	float a = smoothstep(clamp(clear_ratio, 0.0, 0.95), 1.0, d / max(radius, 1.0));
 	COLOR = vec4(fog_color.rgb, fog_color.a * a);
 }
 """

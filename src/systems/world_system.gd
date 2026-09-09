@@ -119,30 +119,57 @@ func _merchant_buy(merchant: MerchantNPC, idx: int) -> void:
 # 开放世界：敌人生成 / 检测 / 刷新 / 难度
 # ============================================================
 func _init_world_enemies() -> void:
-	# 散落敌人（大部分近战，少量远程/冲撞）
-	for i in range(arena.INITIAL_ENEMIES):
-		_spawn_world_enemy(_random_enemy_behavior(), Enemy.EnemyType.NORMAL, _random_map_pos())
+	# 开局固定遭遇点保证首屏始终有可交战目标，避免全随机导致空图。
+	_spawn_starter_encounter()
+	var roaming_count := maxi(arena.INITIAL_ENEMIES - arena.STARTER_ENEMY_COUNT, 0)
+	for i in range(roaming_count):
+		_spawn_world_enemy(_random_enemy_behavior(), Enemy.EnemyType.NORMAL, _random_map_pos(720.0))
 
-	# 6组精英带小怪的营地
+	# 每个精英营固定落在道路节点，保证探索目标和战斗密度可预期。
+	var camps: Array = arena.world_layout.get_elite_camps() if arena.world_layout != null else []
 	for i in range(arena.INITIAL_ELITES):
-		var base := _random_map_pos()
-		_spawn_world_enemy(_random_enemy_behavior(), Enemy.EnemyType.ELITE, base)
-		# 精英周围跟 2-3 个普通怪（降低密度，缓解启动与帧率压力）
-		for j in range(randi_range(2, 3)):
-			var offset := Vector2(randf_range(-120, 120), randf_range(-120, 120))
-			var pos := base + offset
-			pos.x = clampf(pos.x, 60, arena.MAP_WIDTH - 60)
-			pos.y = clampf(pos.y, 60, arena.MAP_HEIGHT - 60)
-			_spawn_world_enemy(Enemy.Behavior.MELEE, Enemy.EnemyType.NORMAL, pos)
+		var camp: Dictionary = camps[i] if i < camps.size() else {"center": _random_map_pos(900.0)}
+		_spawn_elite_camp(camp, i)
+
+func _spawn_starter_encounter() -> void:
+	var positions: Array = arena.world_layout.get_starter_spawn_positions() if arena.world_layout != null else []
+	if positions.is_empty():
+		positions = [
+			arena.player.global_position + Vector2(300, 20), arena.player.global_position + Vector2(360, 130),
+			arena.player.global_position + Vector2(430, 250), arena.player.global_position + Vector2(260, 280),
+			arena.player.global_position + Vector2(500, 90), arena.player.global_position + Vector2(500, 330),
+			arena.player.global_position + Vector2(170, 390), arena.player.global_position + Vector2(330, 440),
+		]
+	for i in range(positions.size()):
+		var behavior := Enemy.Behavior.MELEE
+		if i >= 5 and i < 7:
+			behavior = Enemy.Behavior.RANGED
+		elif i >= 7:
+			behavior = Enemy.Behavior.CHARGER
+		_spawn_world_enemy(behavior, Enemy.EnemyType.NORMAL, positions[i])
+
+func _spawn_elite_camp(camp: Dictionary, camp_index: int) -> void:
+	var center: Vector2 = camp.get("center", _random_map_pos(900.0))
+	_spawn_world_enemy(_random_enemy_behavior(), Enemy.EnemyType.ELITE, center)
+	for i in range(3):
+		var angle := TAU * float(i) / 3.0 + float(camp_index) * 0.37
+		var pos := center + Vector2(cos(angle), sin(angle)) * 112.0
+		if arena.world_layout != null:
+			pos = arena.world_layout.project_to_walkable(pos)
+		_spawn_world_enemy(Enemy.Behavior.MELEE if i != 2 else Enemy.Behavior.RANGED, Enemy.EnemyType.NORMAL, pos)
 
 func _init_central_boss() -> void:
 	arena.boss_alive = true
-	var enemy := _create_enemy(Enemy.Behavior.MELEE, Enemy.EnemyType.BOSS, arena.MAP_CENTER)
-	enemy.detection_range = 500.0   # Boss 觉察范围更大
-	enemy.chase_range = 700.0       # 但不会追太远，守住中央区域
+	var boss_pos := arena.world_layout.get_boss_spawn_position() if arena.world_layout != null else arena.MAP_CENTER
+	var enemy := _create_enemy(Enemy.Behavior.MELEE, Enemy.EnemyType.BOSS, boss_pos)
+	enemy.detection_range = 500.0
+	enemy.home_leash = 700.0
+	enemy.reengage_range = 460.0
 	arena.enemies_root.add_child(enemy)
 
 func _spawn_world_enemy(behavior: int, enemy_type: int, pos: Vector2) -> void:
+	if arena.world_layout != null:
+		pos = arena.world_layout.project_to_walkable(pos)
 	var enemy := _create_enemy(behavior, enemy_type, pos)
 	arena.enemies_root.add_child(enemy)
 
@@ -156,6 +183,8 @@ func _create_enemy(behavior: int, enemy_type: int, pos: Vector2) -> Enemy:
 	_set_enemy_texture(enemy)
 	_set_enemy_size(enemy)
 	_set_enemy_stats(enemy)
+	enemy.home_leash = 520.0 if enemy_type == Enemy.EnemyType.NORMAL else 620.0
+	enemy.reengage_range = 340.0 if enemy_type == Enemy.EnemyType.NORMAL else 420.0
 	enemy.set_chase_target(arena.player)
 	enemy.world_ref = self
 	return enemy
@@ -167,8 +196,24 @@ func _random_enemy_behavior() -> int:
 	if roll < 0.95: return Enemy.Behavior.CHARGER
 	return Enemy.Behavior.EXPLODER
 
-func _random_map_pos() -> Vector2:
-	return Vector2(randf_range(100, arena.MAP_WIDTH - 100), randf_range(100, arena.MAP_HEIGHT - 100))
+func _random_map_pos(min_distance_from_player: float = 0.0) -> Vector2:
+	if arena.world_layout != null:
+		return arena.world_layout.get_random_walkable_position(arena.player.global_position, min_distance_from_player)
+	for _attempt in range(24):
+		var pos := Vector2(randf_range(100, arena.MAP_WIDTH - 100), randf_range(100, arena.MAP_HEIGHT - 100))
+		if min_distance_from_player <= 0.0 or pos.distance_to(arena.player.global_position) >= min_distance_from_player:
+			return pos
+	return Vector2(arena.MAP_WIDTH - 160, arena.MAP_HEIGHT - 160)
+
+func get_path_for_unit(from: Vector2, to: Vector2) -> PackedVector2Array:
+	if arena.world_layout != null:
+		return arena.world_layout.find_path(from, to)
+	var direct := PackedVector2Array()
+	direct.append(to)
+	return direct
+
+func has_line_of_sight(from: Vector2, to: Vector2) -> bool:
+	return arena.world_layout == null or not arena.world_layout.is_segment_blocked(from, to, 2.0)
 
 func _set_enemy_texture(enemy: Enemy) -> void:
 	match enemy.enemy_type:
@@ -183,25 +228,33 @@ func _set_enemy_texture(enemy: Enemy) -> void:
 			enemy._update_texture(pool[randi_range(0, pool.size() - 1)])
 
 func _set_enemy_size(enemy: Enemy) -> void:
-	var sprite := enemy.get_node_or_null("BodySprite") as Sprite2D
-	if not sprite: return
 	match enemy.enemy_type:
-		Enemy.EnemyType.ELITE: sprite.scale = Vector2(0.55, 0.55)
-		Enemy.EnemyType.BOSS: sprite.scale = Vector2(0.7, 0.7)
+		Enemy.EnemyType.ELITE: enemy.visual_scale = GameData.get_enemy_visual_scale("elite")
+		Enemy.EnemyType.BOSS: enemy.visual_scale = GameData.get_enemy_visual_scale("boss")
+		_: enemy.visual_scale = GameData.get_enemy_visual_scale("normal")
+	var sprite := enemy.get_node_or_null("BodySprite") as Sprite2D
+	if sprite:
+		sprite.scale = enemy.visual_scale
 
 func _set_enemy_stats(enemy: Enemy) -> void:
-	# M3：敌人强度由生存系统威胁等级驱动（替代原 difficulty_level 线性缩放）
+	# 类型差异强调追击压力而不是单发秒杀，适配当前 2D 直控与单位碰撞。
 	var scale := arena.survival.stat_scale() if arena.survival != null else 1.0
 	if enemy.enemy_type == Enemy.EnemyType.BOSS:
 		scale = arena.survival.boss_scale() if arena.survival != null else 1.25
-	enemy.set_meta("threat_scale", scale)  # 供威胁升级时对存活敌人做增量缩放
-	var hp_mult := 1.0
-	var dmg_mult := 1.0
-	var spd_mult := 1.0
+	enemy.set_meta("threat_scale", scale)
+	var base_hp := 50.0
+	var move_speed := 195.0
+	var atk_damage := 10.0
 	match enemy.enemy_type:
-		Enemy.EnemyType.ELITE: hp_mult = 3.0; dmg_mult = 1.8; spd_mult = 1.05
-		Enemy.EnemyType.BOSS:  hp_mult = 12.0; dmg_mult = 3.5; spd_mult = 0.6
-	enemy.setup(50 * scale * hp_mult, 195 * spd_mult, 10 * scale * dmg_mult, 1.5)
+		Enemy.EnemyType.ELITE:
+			base_hp = 150.0
+			move_speed = 235.0
+			atk_damage = 13.0
+		Enemy.EnemyType.BOSS:
+			base_hp = 600.0
+			move_speed = 290.0
+			atk_damage = 8.0
+	enemy.setup(base_hp * scale, move_speed, atk_damage * scale, 1.5)
 
 func _process_enemy_attacks(delta: float) -> void:
 	for enemy in arena.enemies_root.get_children():
@@ -212,25 +265,30 @@ func _process_enemy_attacks(delta: float) -> void:
 		enemy.attack_timer -= delta
 		if enemy.attack_timer > 0.0:
 			continue
-		# 攻击判定：敌人在攻击范围内（远程兵用其射程，近战用 50）
+		# 攻击判定：近战与 AI 起手距离统一为 52px。
 		var e := enemy as Enemy
-		var reach := 50.0
+		var reach := 52.0
 		if e.behavior == Enemy.Behavior.RANGED:
 			reach = e.ranged_attack_range
-		if arena.player.global_position.distance_to(e.global_position) < reach:
-			# M3：复活无敌期间不结算伤害，但仍刷新攻击计时
-			if arena.player_invuln <= 0.0:
-				var dmg := e.damage
-				# 被动：闪避
-				var pc := arena.get_passive_combat()
-				if pc.get("evasion", 0.0) > 0.0 and randf() < float(pc["evasion"]):
-					arena.hud.set_message("闪避！")
-				else:
-					arena.player.take_damage(dmg, Vector2.ZERO, 0.0, e)
-					arena._spawn_damage_number(arena.player.global_position, dmg, false)
-		if arena.player.hp <= 0.0 and not arena._is_dead:
-			arena._is_dead = true
-			arena._handle_player_death()  # M3：复活 + 计数（不再直接重载场景）
+		if arena.player.global_position.distance_to(e.global_position) < reach and has_line_of_sight(e.global_position, arena.player.global_position):
+			_deal_damage_to_player(e.damage, e)
+
+func _resolve_enemy_projectile_hit(body: Node2D, projectile) -> void:
+	if body == arena.player:
+		_deal_damage_to_player(float(projectile.damage), projectile.attacker)
+
+func _deal_damage_to_player(amount: float, attacker: Node = null) -> void:
+	if amount <= 0.0 or arena.player_invuln > 0.0 or arena._is_dead:
+		return
+	var pc := arena.get_passive_combat()
+	if pc.get("evasion", 0.0) > 0.0 and randf() < float(pc["evasion"]):
+		arena.hud.set_message("闪避！")
+		return
+	arena.player.take_damage(amount, Vector2.ZERO, 0.0, attacker)
+	arena._spawn_damage_number(arena.player.global_position, amount, false)
+	if arena.player.hp <= 0.0 and not arena._is_dead:
+		arena._is_dead = true
+		arena._handle_player_death()
 
 func _process_enemy_detection() -> void:
 	# 探测玩家：敌人是否在 detection_range 内？
@@ -366,7 +424,8 @@ func _spawn_drop(enemy: Enemy) -> void:
 	_apply_luck_quality(item)
 
 	var drop := SkillDrop.new(item)
-	drop.position = enemy.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+	var drop_pos := enemy.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+	drop.position = arena.world_layout.project_to_walkable(drop_pos) if arena.world_layout != null else drop_pos
 	arena.drops_root.add_child(drop)
 
 func _apply_luck_quality(item: Dictionary) -> void:
@@ -388,13 +447,20 @@ func _process_merchants(_delta: float) -> void:
 			_spawn_merchant()
 
 func _init_ancient_idols() -> void:
-	var count := randi_range(3, 4)
-	for i in range(count):
+	const IDOL_COUNT := 2
+	for i in range(IDOL_COUNT):
 		var idol := AncientIdol.new()
-		idol.position = Vector2(randf_range(200, arena.MAP_WIDTH - 200), randf_range(200, arena.MAP_HEIGHT - 200))
-		# 远离中央Boss区域
-		while idol.position.distance_to(arena.MAP_CENTER) < 500:
-			idol.position = Vector2(randf_range(200, arena.MAP_WIDTH - 200), randf_range(200, arena.MAP_HEIGHT - 200))
+		var pos := _random_map_pos(900.0)
+		for _attempt in range(24):
+			var overlaps_existing := false
+			for existing in arena.idols:
+				if is_instance_valid(existing) and pos.distance_to(existing.global_position) < 700.0:
+					overlaps_existing = true
+					break
+			if not overlaps_existing:
+				break
+			pos = _random_map_pos(900.0)
+		idol.position = pos
 		arena.add_child(idol)
 		arena.idols.append(idol)
 
@@ -439,7 +505,8 @@ func _accept_idol(idol: AncientIdol) -> void:
 func _spawn_merchant() -> void:
 	var merchant := MerchantNPC.new()
 	merchant.map_size = Vector2(arena.MAP_WIDTH, arena.MAP_HEIGHT)
-	merchant.position = Vector2(randf_range(200, arena.MAP_WIDTH - 200), randf_range(200, arena.MAP_HEIGHT - 200))
+	merchant.world_layout = arena.world_layout
+	merchant.position = _random_map_pos(760.0)
 	arena.add_child(merchant)
 	arena.merchants.append(merchant)
 

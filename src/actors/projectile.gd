@@ -1,7 +1,7 @@
 extends Area2D
 class_name Projectile
 
-const SkillEffects = preload("res://src/systems/skill_effects.gd")
+enum Faction { PLAYER, ENEMY }
 
 var speed: float = 600.0
 var damage: float = 30.0
@@ -9,12 +9,15 @@ var direction: Vector2 = Vector2.RIGHT
 var lifetime: float = 3.0
 var pierce_count: int = 3
 var knockback: float = 80.0
+var faction: int = Faction.PLAYER
+var attacker: Node2D = null
+var hit_resolver: Callable
 var hit_targets: Array = []
-var effects: Dictionary = {}          # 命中时施加的状态效果
+var effects: Dictionary = {}
 
 var _elapsed: float = 0.0
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	_elapsed += delta
 	if _elapsed >= lifetime:
 		queue_free()
@@ -22,15 +25,23 @@ func _process(delta: float) -> void:
 	position += direction * speed * delta
 
 func _on_body_entered(body: Node2D) -> void:
-	if body == null:
+	if body == null or not is_instance_valid(body):
 		return
-	if hit_targets.has(body):
+	if body.is_in_group("world_blocker"):
+		queue_free()
+		return
+	if not _can_hit(body) or hit_targets.has(body):
 		return
 	hit_targets.append(body)
-	if body.has_method("take_damage"):
-		body.take_damage(damage, direction, knockback)
-	# 命中时把所有控制/减益原语交给 SkillEffects 统一施加（与近战结算一致）
-	if body.has_method("apply_status"):
-		SkillEffects.apply_to_target(body, effects, {"caster": null, "arena": null, "dmg": damage, "from_pos": global_position, "effects": effects})
+	if hit_resolver.is_valid():
+		hit_resolver.call(body, self)
 	if hit_targets.size() >= pierce_count:
 		queue_free()
+
+func _can_hit(body: Node2D) -> bool:
+	match faction:
+		Faction.PLAYER:
+			return body.is_in_group("enemy")
+		Faction.ENEMY:
+			return body.is_in_group("player")
+	return false

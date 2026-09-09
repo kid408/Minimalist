@@ -46,6 +46,7 @@ func _ready() -> void:
 
 	# 文本标签
 	_label = Label.new()
+	_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_label.position = Vector2(-80, -40)
 	_label.size = Vector2(160, 28)
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -58,6 +59,8 @@ func _ready() -> void:
 	# 交互区域
 	var area := Area2D.new()
 	area.name = "InteractArea"
+	area.collision_layer = 0
+	area.collision_mask = 1
 	var collision := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
 	circle.radius = 48.0

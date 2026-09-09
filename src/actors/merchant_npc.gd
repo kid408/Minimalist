@@ -16,10 +16,18 @@ var post_trade_timer: float = 0.0
 var refresh_timer: float = 0.0
 var current_merchandise: Array = []
 var player_nearby: Node2D = null
+var world_layout: Node = null
 var is_trading := false
 
 func _ready() -> void:
 	add_to_group("merchants")
+	collision_layer = 0
+	collision_mask = 1
+	var collision := CollisionShape2D.new()
+	var shape := CircleShape2D.new()
+	shape.radius = 44.0
+	collision.shape = shape
+	add_child(collision)
 	randomize()
 	move_direction = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
 	_refresh_merchandise()
@@ -28,6 +36,7 @@ func _ready() -> void:
 func _create_label() -> void:
 	var label := Label.new()
 	label.name = "Nametag"
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.position = Vector2(-40, -36)
 	label.size = Vector2(80, 24)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -39,6 +48,7 @@ func _create_label() -> void:
 
 	var prompt := Label.new()
 	prompt.name = "Prompt"
+	prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	prompt.position = Vector2(-60, -56)
 	prompt.size = Vector2(120, 18)
 	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -95,6 +105,8 @@ func _physics_process(delta: float) -> void:
 	# 边界约束（按当前地图尺寸留 60px 内边距）
 	position.x = clampf(position.x, 60, maxf(120.0, map_size.x - 60))
 	position.y = clampf(position.y, 60, maxf(120.0, map_size.y - 60))
+	if world_layout != null and world_layout.has_method("project_to_walkable"):
+		position = world_layout.call("project_to_walkable", position)
 
 func try_interact(player_node: Node2D) -> bool:
 	if is_trading:

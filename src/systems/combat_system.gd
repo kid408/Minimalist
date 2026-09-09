@@ -37,6 +37,8 @@ func _process_attack(delta: float) -> void:
 		if arena.mark_target != null and dist > 600.0:
 			arena.mark_target = null
 		return
+	if arena.world_layout != null and arena.world_layout.is_segment_blocked(arena.player.global_position, target.global_position, 2.0):
+		return
 
 	var aspd := arena.player.attack_speed_mult()
 	if arena.aura != null:
@@ -181,7 +183,7 @@ func _make_preview_visual(radius: float, color: Color) -> Node2D:
 		grad.colors = [color, Color(color.r, color.g, color.b, 0.0)]
 		tex.gradient = grad
 		sprite.texture = tex
-		sprite.scale = Vector2(0.5, 0.5)
+		sprite.scale = Vector2.ONE
 		indicator.add_child(sprite)
 	var line := Line2D.new()
 	line.name = "AimLine"
@@ -317,23 +319,36 @@ func _skill_dash(mouse_pos: Vector2, dmg: float, skill: Dictionary) -> void:
 	# 联动：突进距离+30%
 	if arena._get_synergy_bonuses().get("dash", 0) >= 2:
 		dash_dist *= 1.3
-	var dir := arena.player.global_position.direction_to(mouse_pos)
-	# 闪烁：仅位移，无伤害
+	var origin := arena.player.global_position
+	var dir := origin.direction_to(mouse_pos)
+	if dir.length_squared() <= 0.001:
+		return
+	# 闪烁可越过阻挡，但最终落点必须是可通行位置。
 	if bool(effects.get("blink_only", false)):
-		arena.player.position += dir * (dash_dist + 60.0)
+		var blink_target := origin + dir * (dash_dist + 60.0)
+		arena.player.global_position = arena.world_layout.project_to_walkable(blink_target) if arena.world_layout != null else blink_target
 		arena.player.position.x = clampf(arena.player.position.x, 40, arena.MAP_WIDTH - 40)
 		arena.player.position.y = clampf(arena.player.position.y, 40, arena.MAP_HEIGHT - 40)
 		return
-	arena.player.position += dir * dash_dist
+
+	# 突进穿过单位，但会被树林和岩石截断。
+	var original_mask := arena.player.collision_mask
+	arena.player.collision_mask = 8
+	arena.player.move_and_collide(dir * dash_dist)
+	arena.player.collision_mask = original_mask
 	arena.player.position.x = clampf(arena.player.position.x, 40, arena.MAP_WIDTH - 40)
 	arena.player.position.y = clampf(arena.player.position.y, 40, arena.MAP_HEIGHT - 40)
+
+	var traveled := arena.player.global_position - origin
+	var travel_length := traveled.length()
+	var travel_dir := traveled.normalized() if travel_length > 0.01 else dir
 	var hit_count := 0
 	for enemy_node in arena.enemies_root.get_children():
 		if enemy_node is Enemy and not (enemy_node as Enemy).is_dead():
 			var e := enemy_node as Enemy
-			var rel: Vector2 = e.global_position - (arena.player.global_position - dir * 50)
-			if abs(rel.cross(dir)) < 50 and rel.dot(dir) > 0 and rel.length() < 160:
-				_deal_to_enemy(e, dmg, effects, arena.player.global_position)
+			var rel := e.global_position - origin
+			if abs(rel.cross(travel_dir)) < 50.0 and rel.dot(travel_dir) > 0.0 and rel.dot(travel_dir) <= travel_length + 56.0:
+				_deal_to_enemy(e, dmg, effects, origin)
 				hit_count += 1
 	# 裂地冲：留下持续裂痕
 	if effects.has("trail_dps_mult"):
@@ -357,6 +372,11 @@ func _skill_projectile(mouse_pos: Vector2, dmg: float, skill: Dictionary) -> voi
 	proj.lifetime = 3.0
 	proj.pierce_count = 4
 	proj.effects = effects
+	proj.faction = Projectile.Faction.PLAYER
+	proj.attacker = arena.player
+	proj.collision_layer = 0
+	proj.collision_mask = 2 | 8
+	proj.hit_resolver = Callable(self, "_resolve_player_projectile_hit")
 	# 联动：弹体速度+40%
 	if arena._get_synergy_bonuses().get("projectile", 0) >= 2:
 		proj.speed *= 1.4
@@ -376,6 +396,10 @@ func _skill_projectile(mouse_pos: Vector2, dmg: float, skill: Dictionary) -> voi
 
 	proj.body_entered.connect(proj._on_body_entered)
 	arena.add_child(proj)
+
+func _resolve_player_projectile_hit(body: Node2D, proj: Projectile) -> void:
+	if body is Enemy:
+		_deal_to_enemy(body as Enemy, proj.damage, proj.effects, arena.player.global_position)
 
 # 统一的敌人伤害结算：伤害 + 击退 + 目标侧控制/减益原语 + 击杀回调 + 光环吸血
 func _deal_to_enemy(enemy: Enemy, dmg: float, effects: Dictionary, from_pos: Vector2) -> void:
@@ -460,10 +484,11 @@ func _skill_buff(_pos: Vector2, _dmg: float, skill: Dictionary) -> void:
 # 召唤型技能：生成召唤物（属性由 effects 指定）
 func _skill_summon(_dmg: float, skill: Dictionary) -> void:
 	var effects: Dictionary = skill.get("effects", {})
-	if arena.summons.size() >= arena.summon_limit:
+	var available := arena.summon_limit - arena.summons.size()
+	if available <= 0:
 		arena.hud.set_message("召唤物已达上限(%d)" % arena.summon_limit)
 		return
-	var count := int(effects.get("count", 1))
+	var count := mini(int(effects.get("count", 1)), available)
 	# 召唤随属性成长：基础数值 + 各属性总值 × per（来自 summon_scaling.tsv）
 	var hp := float(effects.get("hp", 120.0))
 	var dmg := float(effects.get("dmg", 15.0))
@@ -507,7 +532,7 @@ func _show_aoe_indicator(pos: Vector2, radius: float, color: Color) -> void:
 	grad.colors = [color, Color(color.r, color.g, color.b, 0.0)]
 	tex.gradient = grad
 	sprite.texture = tex
-	sprite.scale = Vector2(0.5, 0.5)
+	sprite.scale = Vector2.ONE
 	indicator.add_child(sprite)
 	arena.add_child(indicator)
 	# 自动移除
@@ -562,6 +587,9 @@ func _spawn_summon() -> void:
 func _remove_summon(s: Summon) -> void:
 	arena.summons.erase(s)
 	arena.selected_summons.erase(s)
+	if is_instance_valid(s):
+		s.set_selected(false)
+		s.queue_free()
 
 # ============================================================
 # 战斗 HUD 刷新
@@ -591,7 +619,14 @@ func _update_hud() -> void:
 	for m in arena.merchants:
 		if m.global_position.distance_to(arena.player.global_position) <= arena.FOG_RADIUS:
 			merchant_positions.append(m.global_position)
-	arena.hud.update_minimap(arena.player.global_position, enemy_positions, merchant_positions, Vector2(arena.MAP_WIDTH, arena.MAP_HEIGHT))
+	var layout_roads: Array = []
+	var camp_positions: Array = []
+	var boss_position := Vector2.ZERO
+	if arena.world_layout != null:
+		layout_roads = arena.world_layout.get_roads()
+		camp_positions = arena.world_layout.get_camp_positions()
+		boss_position = arena.world_layout.get_boss_spawn_position()
+	arena.hud.update_minimap(arena.player.global_position, enemy_positions, merchant_positions, Vector2(arena.MAP_WIDTH, arena.MAP_HEIGHT), layout_roads, camp_positions, boss_position)
 	# M3：刷新生存目标条（倒计时 / Boss 进度 / 死亡次数 / 威胁等级）
 	if arena.survival != null and is_instance_valid(arena.survival):
 		arena.hud.update_objective({

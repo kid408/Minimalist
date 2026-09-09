@@ -8,6 +8,7 @@ const SurvivalSystem = preload("res://src/systems/survival_system.gd")
 const InventorySystem = preload("res://src/systems/inventory_system.gd")
 const SkillEngine = preload("res://src/systems/skill_engine.gd")
 const AuraSystem = preload("res://src/systems/aura_system.gd")
+const WorldLayout = preload("res://src/systems/world_layout.gd")
 
 const GameData = preload("res://src/data/game_data.gd")
 const HUD = preload("res://src/ui/hud.gd")
@@ -32,6 +33,7 @@ var aura: AuraSystem            # 光环 / 常驻加成
 
 var player: Player
 var hud: HUD
+var world_layout: WorldLayout
 var drops_root: Node2D
 
 # 槽位
@@ -45,7 +47,6 @@ var gold := 0
 var kills := 0
 var recovery_stone_charge := 15  # 开局满充能
 var recovery_stone_need := 15
-var agent: NavigationAgent2D
 var attack_timer: float = 0.0
 var mark_target: Enemy = null
 var last_message := ""
@@ -60,6 +61,11 @@ var _preview_node: Node2D = null
 # Warcraft 式点击移动：右键设置移动目标，玩家走向该点后停下
 var _player_move_target: Vector2 = Vector2.ZERO
 var _player_moving: bool = false
+var _player_chase_target: Enemy = null
+var _player_path: PackedVector2Array = PackedVector2Array()
+var _player_path_index := 0
+var _player_path_goal := Vector2.ZERO
+var _player_path_repath_remaining := 0.0
 var _preview_uses_mouse: bool = false
 var _preview_radius: float = 0.0
 var _preview_is_directional: bool = false
@@ -83,9 +89,12 @@ var selection_drawer: Node2D
 # 敌人
 const MAP_WIDTH := 6000.0
 const MAP_HEIGHT := 4200.0
+const START_POSITION := Vector2(800, 600)
 const MAP_CENTER := Vector2(3000, 2100)
-const FOG_RADIUS := 700.0  # 战争迷雾外缘半径（也是小地图视野揭示半径）
+const FOG_RADIUS := 760.0  # 战争迷雾外缘半径（也是小地图视野揭示半径）
+const FOG_CLEAR_RATIO := 0.45
 const INITIAL_ENEMIES := 80
+const STARTER_ENEMY_COUNT := 8
 const INITIAL_ELITES := 12
 const RESPAWN_DELAY := 18.0
 const BOSS_RESPAWN_DELAY := 150.0
@@ -108,6 +117,7 @@ var pending_skill_drop: Dictionary = {}
 
 func _ready() -> void:
 	randomize()
+	_ensure_runtime_input_actions()
 	# 背景图（平铺覆盖整张地图）
 	var bg_tex := load("res://assets/Map.png") as Texture2D
 	if bg_tex:
@@ -129,8 +139,13 @@ func _ready() -> void:
 
 	player = Player.new()
 	player.init_from_hero(GameData.get_hero("vanguard"))
-	player.position = Vector2(640, 400)
+	player.position = START_POSITION
 	add_child(player)
+
+	world_layout = WorldLayout.new()
+	world_layout.name = "WorldLayout"
+	add_child(world_layout)
+	world_layout.build(Vector2(MAP_WIDTH, MAP_HEIGHT), START_POSITION, MAP_CENTER)
 
 	# 子系统：世界 / 战斗 / 库存（必须在调用其方法前实例化）
 	world = WorldSystem.new(); world.arena = self; add_child(world)
@@ -142,6 +157,7 @@ func _ready() -> void:
 
 	survival = SurvivalSystem.new()
 	survival.arena = self
+	add_child(survival)
 	survival.start()
 	survival.set_process(false)  # M3：由 arena._process 手动驱动，避免 Godot 自动回调重复计时
 
@@ -173,9 +189,6 @@ func _ready() -> void:
 
 	_init_camera()
 
-	agent = NavigationAgent2D.new()
-	player.add_child(agent)
-
 	_init_slots()
 	_connect_hud()
 	_init_world_enemies()
@@ -186,7 +199,7 @@ func _ready() -> void:
 	# 战争迷雾
 	var fog := FogOfWar.new()
 	add_child(fog)
-	fog.init(player, FOG_RADIUS)
+	fog.init(player, FOG_RADIUS, FOG_CLEAR_RATIO)
 	fog.z_index = 50
 
 	player.add_to_group("player")
@@ -197,7 +210,6 @@ func _process(delta: float) -> void:
 	# 摄像机跟随
 	if _camera and is_instance_valid(_camera):
 		_camera.global_position = player.global_position
-	_process_movement(delta)
 	_process_attack(delta)
 	_process_energy(delta)
 	_process_cooldowns(delta)
@@ -221,50 +233,104 @@ func _process(delta: float) -> void:
 	_process_drop_proximity(delta)
 	_update_hud()
 
-func _physics_process(_delta: float) -> void:
-	pass
+func _physics_process(delta: float) -> void:
+	_process_movement(delta)
 
 # ============================================================
 # 移动
 # ============================================================
 func _process_movement(delta: float) -> void:
-	# 键盘移动（备用兼容，按住时取消点击移动）
-	var kdir := Vector2(
-		Input.get_axis("move_left", "move_right"),
-		Input.get_axis("move_up", "move_down")
-	)
+	# 键盘移动优先；右键移动使用布局路径，避免树林和岩石成为直线卡点。
+	var modal_open := hud != null and hud.has_modal()
+	var kdir := Vector2.ZERO
+	if not modal_open:
+		kdir = Vector2(
+			Input.get_axis("move_left", "move_right"),
+			Input.get_axis("move_up", "move_down")
+		)
+	else:
+		_player_moving = false
+		_player_chase_target = null
+		_clear_player_path()
+
 	var speed_mult := player.move_speed_mult()
 	if aura != null:
 		speed_mult *= 1.0 + aura.get_bonus("move_speed_pct")
 	var speed := player.base_move_speed * speed_mult
-	var sprite := player.get_node_or_null("BodySprite") as Sprite2D
+	var desired_velocity := Vector2.ZERO
+	var is_moving := false
 
 	if kdir.length() > 0.01:
 		_player_moving = false
-		player.position += kdir.normalized() * speed * delta
-		if sprite:
-			_bounce_phase += delta * 12.0
-			sprite.scale = Vector2(0.5, 0.5) + Vector2(0.02, 0.02) * sin(_bounce_phase * 2.0)
+		_player_chase_target = null
+		_clear_player_path()
+		desired_velocity = kdir.normalized() * speed
+		is_moving = true
 	elif _player_moving:
-		# Warcraft 式：走向右键设定的目标点，到达后停下
-		var to_t := _player_move_target - player.position
-		var d := to_t.length()
-		if d <= speed * delta or d < 4.0:
-			player.position = _player_move_target
+		var move_goal := _next_player_move_goal(delta)
+		if move_goal == Vector2.ZERO:
 			_player_moving = false
 		else:
-			player.position += to_t.normalized() * speed * delta
-		if sprite:
-			_bounce_phase += delta * 12.0
-			sprite.scale = Vector2(0.5, 0.5) + Vector2(0.02, 0.02) * sin(_bounce_phase * 2.0)
-	else:
-		if sprite:
-			sprite.scale = sprite.scale.move_toward(Vector2(0.5, 0.5), delta * 4.0)
-			_bounce_phase = 0.0
+			desired_velocity = player.global_position.direction_to(move_goal) * speed
+			is_moving = true
 
-	# 范围约束（匹配放大后的地图）
+	player.velocity = desired_velocity
+	player.move_and_slide()
 	player.position.x = clampf(player.position.x, 40, MAP_WIDTH - 40)
 	player.position.y = clampf(player.position.y, 40, MAP_HEIGHT - 40)
+
+	var sprite := player.get_node_or_null("BodySprite") as Sprite2D
+	if sprite == null:
+		return
+	if is_moving:
+		_bounce_phase += delta * 12.0
+		sprite.scale = GameData.get_player_visual_scale() + GameData.get_player_bounce_scale() * sin(_bounce_phase * 2.0)
+	else:
+		sprite.scale = sprite.scale.move_toward(GameData.get_player_visual_scale(), delta * 4.0)
+		_bounce_phase = 0.0
+
+func _set_player_move_target(target: Vector2, chase_target: Enemy = null) -> void:
+	_player_chase_target = chase_target
+	_player_move_target = world_layout.project_to_walkable(target) if world_layout != null else target
+	_player_moving = true
+	_rebuild_player_path()
+
+func _rebuild_player_path() -> void:
+	_player_path.clear()
+	_player_path_index = 0
+	_player_path_goal = _player_move_target
+	_player_path_repath_remaining = 0.30
+	if world_layout != null:
+		_player_path = world_layout.find_path(player.global_position, _player_move_target)
+	if _player_path.is_empty():
+		_player_path.append(_player_move_target)
+
+func _clear_player_path() -> void:
+	_player_path.clear()
+	_player_path_index = 0
+	_player_path_repath_remaining = 0.0
+
+func _next_player_move_goal(delta: float) -> Vector2:
+	if _player_chase_target != null:
+		if not is_instance_valid(_player_chase_target) or _player_chase_target.is_dead():
+			_player_chase_target = null
+			return Vector2.ZERO
+		var attack_stop_range := player.base_attack_range + 34.0
+		if player.global_position.distance_to(_player_chase_target.global_position) <= attack_stop_range:
+			return Vector2.ZERO
+		var chase_goal := world_layout.project_to_walkable(_player_chase_target.global_position) if world_layout != null else _player_chase_target.global_position
+		_player_path_repath_remaining -= delta
+		if _player_path_repath_remaining <= 0.0 or chase_goal.distance_to(_player_path_goal) > 64.0:
+			_player_move_target = chase_goal
+			_rebuild_player_path()
+
+	while _player_path_index < _player_path.size() and player.global_position.distance_to(_player_path[_player_path_index]) <= 20.0:
+		_player_path_index += 1
+	if _player_path_index < _player_path.size():
+		return _player_path[_player_path_index]
+	if player.global_position.distance_to(_player_move_target) <= 8.0:
+		return Vector2.ZERO
+	return _player_move_target
 
 # ============================================================
 # 能量回复
@@ -275,16 +341,31 @@ func _process_energy(delta: float) -> void:
 # ============================================================
 # 输入处理
 # ============================================================
+func _ensure_runtime_input_actions() -> void:
+	_ensure_runtime_key_action("interact", KEY_SPACE)
+	_ensure_runtime_key_action("attributes", KEY_T)
+
+func _ensure_runtime_key_action(action_name: String, keycode: Key) -> void:
+	if not InputMap.has_action(action_name):
+		InputMap.add_action(action_name)
+	if not InputMap.action_get_events(action_name).is_empty():
+		return
+	var physical_event := InputEventKey.new()
+	physical_event.physical_keycode = keycode
+	InputMap.action_add_event(action_name, physical_event)
+	var logical_event := InputEventKey.new()
+	logical_event.keycode = keycode
+	InputMap.action_add_event(action_name, logical_event)
+
 func _handle_left_release(world_pos: Vector2) -> void:
 	# 单体目标技能选取态：左键点击单位完成施放，不做框选
 	if skill_engine != null and skill_engine.is_targeting():
-		skill_engine.try_pick_target(get_global_mouse_position())
+		skill_engine.try_pick_target(world_pos)
 		return
-	if _selection_box.has_area():
+	if _selection_box.size.length() >= 12.0:
 		_clear_selection()
-		var box := _selection_box
 		for s in summons:
-			if box.has_point(s.global_position):
+			if is_instance_valid(s) and _selection_box.has_point(s.global_position):
 				_select(s)
 	else:
 		var s := _summon_at(world_pos)
@@ -301,39 +382,77 @@ func _handle_right_click(world_pos: Vector2) -> void:
 		if skill_engine.is_channeling():
 			skill_engine.interrupt_channel("引导已取消。")
 			return
-	# Warcraft 式点击移动：右键移动玩家；点敌人则走向并设为焦点目标
-	var enemy_at = _enemy_at(world_pos)
+	# Warcraft 式点击移动：点敌人进入追击，点地面取消焦点并走向可通行位置。
+	var enemy_at := _enemy_at(world_pos)
+	var walkable_target := world_layout.project_to_walkable(world_pos) if world_layout != null else world_pos
 	if enemy_at:
-		_player_move_target = enemy_at.global_position
 		mark_target = enemy_at
+		_set_player_move_target(enemy_at.global_position, enemy_at)
 	else:
-		_player_move_target = world_pos
-	_player_moving = true
+		mark_target = null
+		_set_player_move_target(walkable_target)
 	# 同时指挥已选中的召唤物（攻击敌人 / 移动到该点）
-	if not selected_summons.is_empty():
+	for s in selected_summons:
+		if not is_instance_valid(s):
+			continue
 		if enemy_at:
-			for s in selected_summons:
-				s.attack_target = enemy_at
+			s.command_attack_target = enemy_at
+			s.command_target_pos = Vector2.ZERO
 		else:
-			for s in selected_summons:
-				s.move_to = world_pos
+			s.command_attack_target = null
+			s.command_target_pos = walkable_target
 
 func _process_input() -> void:
-	# 鼠标右键：下令
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-		_handle_right_click(get_global_mouse_position())
-	# 左键：框选/选中（按下时记录，松开时结算）
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		if not _left_was_pressed:
-			_drag_start_world = get_global_mouse_position()
-			_drag_start_screen = get_viewport().get_mouse_position()
-			_selection_box = Rect2(_drag_start_world, Vector2.ZERO)
-			_left_was_pressed = true
-	else:
-		if _left_was_pressed:
-			_handle_left_release(_drag_start_world)
+	if Input.is_action_just_pressed("ui_cancel"):
+		if hud != null and hud.dismiss_top_transient():
+			return
+		_cancel_current_action()
+		return
+	if hud != null and hud.has_modal():
+		return
+
+	var pointer_over_ui := hud != null and hud.is_pointer_over_interactive_ui()
+	if not pointer_over_ui:
+		# 鼠标右键：每次按下只下达一次命令。
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+			if not _right_was_pressed:
+				_handle_right_click(get_global_mouse_position())
+				_right_was_pressed = true
+		else:
+			_right_was_pressed = false
+
+		# 左键：框选/点选。拖动期间实时更新选框。
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			var mouse_world := get_global_mouse_position()
+			if not _left_was_pressed:
+				_drag_start_world = mouse_world
+				_drag_start_screen = get_viewport().get_mouse_position()
+				_selection_box = Rect2(_drag_start_world, Vector2.ZERO)
+				_left_was_pressed = true
+				_is_dragging = true
+			else:
+				_selection_box = Rect2(_drag_start_world, mouse_world - _drag_start_world).abs()
+			if selection_drawer != null:
+				selection_drawer.queue_redraw()
+		else:
+			if _left_was_pressed:
+				var release_world := get_global_mouse_position()
+				_selection_box = Rect2(_drag_start_world, release_world - _drag_start_world).abs()
+				_handle_left_release(release_world)
 			_left_was_pressed = false
+			_is_dragging = false
 			_selection_box = Rect2()
+			if selection_drawer != null:
+				selection_drawer.queue_redraw()
+	else:
+		_right_was_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+		if _left_was_pressed:
+			_left_was_pressed = false
+			_is_dragging = false
+			_selection_box = Rect2()
+			if selection_drawer != null:
+				selection_drawer.queue_redraw()
+
 	# 技能按键：按下进入预览（显示范围遮罩），松开才真正释放
 	for i in range(skill_actions.size()):
 		if Input.is_action_just_pressed(skill_actions[i]):
@@ -341,6 +460,8 @@ func _process_input() -> void:
 		elif Input.is_action_just_released(skill_actions[i]):
 			if _preview_index == i:
 				_release_skill(i)
+	if Input.is_action_just_pressed("summon_spawn"):
+		_spawn_summon()
 	# 交互键
 	if Input.is_action_just_pressed("interact"):
 		if _try_merchant_interact():
@@ -351,6 +472,25 @@ func _process_input() -> void:
 	# 属性分配面板开关（T）
 	if Input.is_action_just_pressed("attributes"):
 		hud.toggle_attribute_panel()
+
+func _cancel_current_action() -> void:
+	if skill_engine != null and skill_engine.is_targeting():
+		skill_engine.cancel_targeting()
+		return
+	if skill_engine != null and skill_engine.is_channeling():
+		skill_engine.interrupt_channel("引导已取消。")
+		return
+	if _preview_index >= 0:
+		_cancel_skill_preview()
+		return
+	if _is_dragging:
+		_left_was_pressed = false
+		_is_dragging = false
+		_selection_box = Rect2()
+		if selection_drawer != null:
+			selection_drawer.queue_redraw()
+		return
+	_clear_selection()
 
 # ============================================================
 # 技能预览：按下显示遮罩，松开释放
@@ -480,7 +620,10 @@ func _handle_player_death() -> void:
 	for k in skill_actions:
 		cooldowns[k] = 5.0
 	player.hp = player.max_hp_calc()
-	player.position = Vector2(MAP_CENTER.x, MAP_CENTER.y + 180)
+	player.position = world_layout.get_respawn_position() if world_layout != null else START_POSITION
+	_player_moving = false
+	_player_chase_target = null
+	_clear_player_path()
 	player_invuln = 3.0
 	_is_dead = false
 	hud.set_message("你阵亡了！损失 %d 金币，复活继续（死亡 %d / %d）" % [penalty, survival.deaths, survival.DEATH_LIMIT])
@@ -629,9 +772,13 @@ func get_player() -> Player:
 # ============================================================
 func _init_camera() -> void:
 	_camera = Camera2D.new()
-	_camera.zoom = Vector2(0.9, 0.9)  # 拉近视角，单位更可读（仍只显示地图局部，保留探索感）
-	_camera.position_smoothing_enabled = true
-	_camera.position_smoothing_speed = 8.0
+	_camera.zoom = Vector2(1.1, 1.1)
+	_camera.position_smoothing_enabled = false
+	_camera.limit_left = 0
+	_camera.limit_top = 0
+	_camera.limit_right = int(MAP_WIDTH)
+	_camera.limit_bottom = int(MAP_HEIGHT)
+	_camera.limit_smoothed = true
 	add_child(_camera)
 	_camera.make_current()
 

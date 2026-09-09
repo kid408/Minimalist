@@ -8,6 +8,30 @@ const EQUIPMENT_SLOT_COUNT := 6
 const WAREHOUSE_SLOT_COUNT := 6
 
 # ============================================================
+# 0. 视觉模型调参
+# ------------------------------------------------------------
+# 修改 MODEL_SCALE_MULTIPLIER 可统一放大/缩小所有单位模型；各档基础值保留识别层级。
+const MODEL_SCALE_MULTIPLIER := 1.0
+const PLAYER_MODEL_SCALE := 0.36
+const PLAYER_BOUNCE_SCALE := 0.015
+const ENEMY_NORMAL_MODEL_SCALE := 0.38
+const ENEMY_ELITE_MODEL_SCALE := 0.42
+const ENEMY_BOSS_MODEL_SCALE := 0.52
+
+static func get_player_visual_scale() -> Vector2:
+	return Vector2.ONE * PLAYER_MODEL_SCALE * MODEL_SCALE_MULTIPLIER
+
+static func get_player_bounce_scale() -> Vector2:
+	return Vector2.ONE * PLAYER_BOUNCE_SCALE * MODEL_SCALE_MULTIPLIER
+
+static func get_enemy_visual_scale(tier: String) -> Vector2:
+	var base_scale := ENEMY_NORMAL_MODEL_SCALE
+	match tier:
+		"elite": base_scale = ENEMY_ELITE_MODEL_SCALE
+		"boss": base_scale = ENEMY_BOSS_MODEL_SCALE
+	return Vector2.ONE * base_scale * MODEL_SCALE_MULTIPLIER
+
+# ============================================================
 # 1. 英雄数据
 # ============================================================
 static func get_heroes() -> Array:
@@ -16,7 +40,7 @@ static func get_heroes() -> Array:
 			"id": "vanguard",
 			"name": "极锋",
 			"role": "近战压制",
-			"base_hp": 140.0,
+			"base_hp": 180.0,
 			"move_speed": 235.0,
 			"attack_damage": 24.0,
 			"attack_interval": 0.46,

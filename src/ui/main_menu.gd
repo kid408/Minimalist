@@ -31,6 +31,12 @@ func _refresh_hero_card() -> void:
 func _start_game() -> void:
 	if current_arena and is_instance_valid(current_arena):
 		return
+	var host := get_tree().current_scene
+	if host == null:
+		host = get_parent()
+	if host == null:
+		push_error("无法找到战场挂载节点。")
+		return
 	current_arena = Arena.new()
-	get_tree().current_scene.add_child(current_arena)
+	host.add_child(current_arena)
 	queue_free()

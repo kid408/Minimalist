@@ -68,7 +68,8 @@ func _handle_drag(from_area: String, from_index: int, to_area: String, to_index:
 			var item: Dictionary = arena.warehouse_slots[from_index]
 			if not arena._is_empty(item):
 				var drop := SkillDrop.new(item)
-				drop.position = arena.player.global_position + Vector2(randf_range(-50, 50), randf_range(-50, 50))
+				var drop_pos := arena.player.global_position + Vector2(randf_range(-50, 50), randf_range(-50, 50))
+				drop.position = arena.world_layout.project_to_walkable(drop_pos) if arena.world_layout != null else drop_pos
 				arena.drops_root.add_child(drop)
 				arena.warehouse_slots[from_index] = {}
 				arena.hud.set_message("已丢弃【%s】到地上" % item.get("name", "物品"))
@@ -117,7 +118,8 @@ func _drop_equipment_to_ground(eq_index: int) -> void:
 	arena.player.refresh_max_hp()
 	arena.player.refresh_max_energy()
 	var drop := SkillDrop.new(equip)
-	drop.position = arena.player.global_position + Vector2(randf_range(-50, 50), randf_range(-50, 50))
+	var drop_pos := arena.player.global_position + Vector2(randf_range(-50, 50), randf_range(-50, 50))
+	drop.position = arena.world_layout.project_to_walkable(drop_pos) if arena.world_layout != null else drop_pos
 	arena.drops_root.add_child(drop)
 	arena.hud.set_message("已丢弃【%s】到地上" % equip.get("name", "装备"))
 	_refresh_hud_slots()
@@ -245,8 +247,23 @@ func _try_pickup() -> void:
 		_refresh_hud_slots()
 		return
 
-	# 仓库满：仅飘字提醒，不弹丢弃界面，物品留在地上
-	arena.hud.set_message("仓库已满，无法拾取【%s】。先腾出仓库再捡。" % item_data.get("name", "物品"))
+	# 仓库满：允许选择一个槽位替换，原物品落回地面而不是直接删除。
+	var drop_ref := nearest
+	var pickup_copy := item_data.duplicate(true)
+	arena.hud.show_replace_popup(arena.warehouse_slots, pickup_copy, func(index: int):
+		if index < 0 or index >= arena.warehouse_slots.size() or not is_instance_valid(drop_ref):
+			return
+		var replaced: Dictionary = arena.warehouse_slots[index]
+		if not arena._is_empty(replaced):
+			var displaced := SkillDrop.new(replaced)
+			var displaced_pos := arena.player.global_position + Vector2(randf_range(-36, 36), randf_range(-36, 36))
+			displaced.position = arena.world_layout.project_to_walkable(displaced_pos) if arena.world_layout != null else displaced_pos
+			arena.drops_root.add_child(displaced)
+		arena.warehouse_slots[index] = pickup_copy
+		drop_ref.queue_free()
+		arena.hud.set_message("拾取【%s】并替换仓库槽位 %d" % [pickup_copy.get("name", "物品"), index + 1])
+		_refresh_hud_slots()
+	)
 
 func _first_empty_warehouse() -> int:
 	for i in range(arena.warehouse_slots.size()):

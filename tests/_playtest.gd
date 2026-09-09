@@ -35,10 +35,24 @@ func _initialize() -> void:
 		return
 
 	_equip_coverage_skills(arena)
+	arena._spawn_merchant()
+	await process_frame
+	var boss_path: PackedVector2Array = arena.world_layout.find_path(arena.player.global_position, arena.MAP_CENTER)
+	var enemy_count_before: int = arena.enemies_root.get_child_count()
+	var respawn_pos: Vector2 = arena.world_layout.project_to_walkable(arena.player.global_position + Vector2(620, 0))
+	arena.dead_queue.append({
+		"type": Enemy.EnemyType.NORMAL,
+		"behavior": Enemy.Behavior.MELEE,
+		"pos": respawn_pos,
+		"time": arena.elapsed_time - arena.RESPAWN_DELAY - 0.1,
+	})
+	arena._process_respawns(0.0)
+	var respawn_ok: bool = arena.enemies_root.get_child_count() == enemy_count_before + 1
+	printerr("PLAYTEST_INFO: world layout path nodes=", boss_path.size(), " camps=", arena.world_layout.get_elite_camps().size(), " respawn=", respawn_ok)
 	printerr("PLAYTEST_INFO: skills equipped, starting drive loop")
 
-	# 需 > RESPAWN_DELAY(18s)*60 才能覆盖敌人重生逻辑；2400 帧约 40 秒
-	var max_frames := 2400
+	# 低频驱动：覆盖技能和输入路径，避免每帧生成大批临时效果拖慢测试。
+	var max_frames := 300
 	var frames := 0
 	var moves := ["move_up", "move_right", "move_left", "move_down"]
 
@@ -52,24 +66,26 @@ func _initialize() -> void:
 		Input.action_press(mv)
 
 		# 直接施放每个主动技能（清冷却 + 保证能量）
-		arena.player.energy = 1000.0
-		for i in range(arena.skill_slots.size()):
-			var s = arena.skill_slots[i]
-			if typeof(s) == TYPE_DICTIONARY and not String(s.get("id", "")).is_empty() and String(s.get("cast_type", "")) == "active":
-				arena.cooldowns[arena.skill_actions[i]] = 0.0
-				arena._cast_skill(i)
+		if frames % 60 == 1:
+			arena.player.energy = 1000.0
+			for i in range(arena.skill_slots.size()):
+				var s = arena.skill_slots[i]
+				if typeof(s) == TYPE_DICTIONARY and not String(s.get("id", "")).is_empty() and String(s.get("cast_type", "")) == "active":
+					arena.cooldowns[arena.skill_actions[i]] = 0.0
+					arena._cast_skill(i)
 
 		# 触发输入分发路径（按键施放）
-		for a in arena.skill_actions:
-			Input.action_press(a)
+		if frames % 90 == 1:
+			for a in arena.skill_actions:
+				Input.action_press(a)
 
 		# 鼠标事件：右键下令 / 左键框选
-		_emit_mouse_motion()
-		_emit_mouse(MOUSE_BUTTON_RIGHT, true)
-		_emit_mouse(MOUSE_BUTTON_LEFT, true)
+		if frames % 90 == 1:
+			_emit_mouse_motion()
+			_emit_mouse(MOUSE_BUTTON_RIGHT, true)
+			_emit_mouse(MOUSE_BUTTON_LEFT, true)
 
-		# 交互键：商人 / 祭坛 / 拾取
-		Input.action_press("interact")
+		# 商人、祭坛和拾取由下方里程碑直接驱动，避免自动交互在暂停窗口上重复触发。
 
 		# 覆盖里程碑（条件触发，避免依赖固定帧数）
 		if not _merchant_done and arena.merchants.size() > 0:
@@ -81,13 +97,20 @@ func _initialize() -> void:
 			arena._do_upgrade(m, 0)
 			arena._do_delete(m, 0)
 			arena._merchant_buy(m, 0)
-			printerr("PLAYTEST_INFO: merchant covered")
+			var merchant_modal: bool = arena.hud.has_modal()
+			var merchant_closed := false
+			while arena.hud.dismiss_top_transient():
+				merchant_closed = true
+			printerr("PLAYTEST_INFO: merchant covered modal=", merchant_modal, " closed=", merchant_closed, " paused=", paused)
 		if not _idol_done and arena.idols.size() > 0:
 			_idol_done = true
 			var idl = arena.idols[0]
 			arena.player.global_position = idl.global_position
+			arena.hud.show_idol_popup(idl.get_cost_description(), func(): pass, func(): pass)
+			var idol_modal: bool = arena.hud.has_modal()
+			var idol_closed: bool = arena.hud.dismiss_top_transient()
 			arena._accept_idol(idl)
-			printerr("PLAYTEST_INFO: idol covered")
+			printerr("PLAYTEST_INFO: idol covered modal=", idol_modal, " closed=", idol_closed, " paused=", paused)
 		if not _pickup_done:
 			_pickup_done = true
 			var item = GameData.get_skill(GameData.get_random_skill_id([]))
@@ -152,9 +175,10 @@ func _initialize() -> void:
 			Input.action_release(a)
 		_emit_mouse(MOUSE_BUTTON_RIGHT, false)
 		_emit_mouse(MOUSE_BUTTON_LEFT, false)
-		Input.action_release("interact")
 
 	printerr("PLAYTEST_DONE frames=", frames)
+	if is_instance_valid(arena):
+		arena.free()
 	quit()
 
 

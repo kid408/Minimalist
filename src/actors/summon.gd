@@ -23,6 +23,10 @@ var follow_leash: float = 130.0  # 跟随半径
 var command_target_pos: Vector2 = Vector2.ZERO  # 移动指令（世界坐标）
 var command_attack_target: Node2D = null        # 集火指令（敌人）
 var selected: bool = false
+var _path_points: PackedVector2Array = PackedVector2Array()
+var _path_index := 0
+var _path_goal := Vector2.ZERO
+var _path_repath_remaining := 0.0
 
 # 护盾（吸收，限时）
 var shield: float = 0.0
@@ -35,13 +39,25 @@ var _body_color: Color = Color(0.4, 0.9, 1.0)
 
 
 func _ready() -> void:
+	collision_layer = 4
+	collision_mask = 1 | 2 | 8
+
+	var collision := CollisionShape2D.new()
+	collision.name = "BodyCollision"
+	var shape := CircleShape2D.new()
+	shape.radius = 13.0
+	collision.shape = shape
+	add_child(collision)
+
 	# 血条
 	_health_bar_bg = ColorRect.new()
+	_health_bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_health_bar_bg.color = Color(0.1, 0.1, 0.1, 0.85)
 	_health_bar_bg.size = Vector2(30, 4)
 	_health_bar_bg.position = Vector2(-15, -30)
 	add_child(_health_bar_bg)
 	_health_bar = ColorRect.new()
+	_health_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_health_bar.color = Color(0.3, 1.0, 0.5)
 	_health_bar.size = Vector2(30, 4)
 	_health_bar.position = Vector2(-15, -30)
@@ -64,10 +80,10 @@ func _physics_process(delta: float) -> void:
 	_think(delta)
 
 
-func _think(_delta: float) -> void:
+func _think(delta: float) -> void:
 	var target_enemy: Enemy = null
 	var move_pos: Vector2 = Vector2.ZERO
-	var need_move: bool = false
+	var need_move := false
 
 	# 1) 显式集火指令优先
 	if command_attack_target != null and is_instance_valid(command_attack_target) and not command_attack_target.is_dead():
@@ -91,17 +107,16 @@ func _think(_delta: float) -> void:
 			move_pos = owner_player.global_position
 			need_move = true
 
-	# 计算期望速度
+	# 计算期望速度：遇到阻挡时按世界路径绕行。
 	var desired := Vector2.ZERO
 	if target_enemy != null:
 		var dist := global_position.distance_to(target_enemy.global_position)
-		if dist > attack_range:
-			desired = global_position.direction_to(target_enemy.global_position) * speed
-		else:
-			if attack_timer <= 0.0:
-				_attack(target_enemy)
+		if dist > attack_range or not _has_line_of_sight(target_enemy.global_position):
+			desired = _path_direction_to(target_enemy.global_position, delta) * speed
+		elif attack_timer <= 0.0:
+			_attack(target_enemy)
 	elif need_move:
-		desired = global_position.direction_to(move_pos) * speed
+		desired = _path_direction_to(move_pos, delta) * speed
 
 	# 分离力：避免召唤物互相重叠堆叠
 	var sep := _separation()
@@ -112,6 +127,26 @@ func _think(_delta: float) -> void:
 		final_vel = sep * speed * 0.9
 	velocity = final_vel
 	move_and_slide()
+
+func _path_direction_to(destination: Vector2, delta: float) -> Vector2:
+	if global_position.distance_to(destination) <= 4.0:
+		return Vector2.ZERO
+	_path_repath_remaining = maxf(_path_repath_remaining - delta, 0.0)
+	if arena != null and arena.world != null:
+		if _path_points.is_empty() or _path_repath_remaining <= 0.0 or _path_goal.distance_to(destination) > 72.0:
+			_path_points = arena.world.get_path_for_unit(global_position, destination)
+			_path_index = 0
+			_path_goal = destination
+			_path_repath_remaining = 0.35
+	while _path_index < _path_points.size() and global_position.distance_to(_path_points[_path_index]) <= 18.0:
+		_path_index += 1
+	var waypoint := destination
+	if _path_index < _path_points.size():
+		waypoint = _path_points[_path_index]
+	return global_position.direction_to(waypoint)
+
+func _has_line_of_sight(target_position: Vector2) -> bool:
+	return arena == null or arena.world == null or arena.world.has_line_of_sight(global_position, target_position)
 
 
 func _separation() -> Vector2:

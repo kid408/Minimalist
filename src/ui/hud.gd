@@ -2,6 +2,7 @@ extends CanvasLayer
 class_name HUD
 
 const GameData = preload("res://src/data/game_data.gd")
+const LOGICAL_VIEWPORT_SIZE := Vector2(1440, 810)
 
 var arena: Node = null
 
@@ -13,6 +14,9 @@ class Minimap:
 	var _player_pos := Vector2.ZERO
 	var _enemy_positions: Array = []
 	var _merchant_positions: Array = []
+	var _roads: Array = []
+	var _camp_positions: Array = []
+	var _boss_position := Vector2.ZERO
 	var _world_size := Vector2(1280, 720)
 	var _map_scale := 1.0
 
@@ -21,10 +25,13 @@ class Minimap:
 		custom_minimum_size = Vector2(140, 100)
 		queue_redraw()
 
-	func update_data(player_pos: Vector2, enemies: Array, merchants: Array, world: Vector2) -> void:
+	func update_data(player_pos: Vector2, enemies: Array, merchants: Array, world: Vector2, roads: Array = [], camps: Array = [], boss_pos: Vector2 = Vector2.ZERO) -> void:
 		_player_pos = player_pos
 		_enemy_positions = enemies.duplicate()
 		_merchant_positions = merchants.duplicate()
+		_roads = roads.duplicate()
+		_camp_positions = camps.duplicate()
+		_boss_position = boss_pos
 		_world_size = world
 		# 计算缩放：让地图适配 minimap 尺寸
 		var map_w: float = size.x - 6
@@ -43,6 +50,22 @@ class Minimap:
 		# 坐标转换
 		var offset := r.position
 		var sc := _map_scale
+
+		# 世界道路、精英营和 Boss 区：保持与主地图相同的探索方向感。
+		for road in _roads:
+			var mini_road := PackedVector2Array()
+			for world_point in road:
+				mini_road.append(offset + Vector2(world_point.x * sc, world_point.y * sc))
+			if mini_road.size() >= 2:
+				draw_polyline(mini_road, Color(0.72, 0.59, 0.30, 0.82), 1.2, true)
+		for camp_pos in _camp_positions:
+			var camp_point := offset + Vector2(camp_pos.x * sc, camp_pos.y * sc)
+			if r.has_point(camp_point):
+				draw_circle(camp_point, 1.8, Color(1.0, 0.72, 0.20, 0.9))
+		var boss_point := offset + Vector2(_boss_position.x * sc, _boss_position.y * sc)
+		if _boss_position != Vector2.ZERO and r.has_point(boss_point):
+			draw_circle(boss_point, 3.2, Color(0.84, 0.25, 0.72, 0.95))
+			draw_arc(boss_point, 4.4, 0.0, TAU, 20, Color(1.0, 0.68, 0.92, 0.9), 1.0, true)
 
 		# 敌人（红色小点）
 		for pos in _enemy_positions:
@@ -513,10 +536,14 @@ class InventorySlot:
 @onready var trade_panel: Panel = $TradePanel
 @onready var trade_close_button: Button = $TradePanel/CloseBtn
 @onready var skill_select_panel: Panel = $SkillSelectPanel
+@onready var skill_select_close_button: Button = $SkillSelectPanel/CloseBtn
 @onready var replace_panel: Panel = $ReplacePanel
+@onready var replace_cancel_button: Button = $ReplacePanel/CancelBtn
 @onready var ground_zone_placeholder: Control = $GroundZonePlaceholder
 @onready var minimap_placeholder: Control = $MinimapPlaceholder
 @onready var idol_popup: Panel = $IdolPopup
+@onready var idol_accept_button: Button = $IdolPopup/AcceptBtn
+@onready var idol_decline_button: Button = $IdolPopup/DeclineBtn
 
 var ground_zone: Panel
 var ground_label: Label
@@ -530,6 +557,10 @@ var replace_buttons: Array = []
 var pending_pickup_item: Dictionary = {}
 var replace_callback: Callable
 var sell_callback: Callable
+var _trade_close_callback: Callable
+var _idol_decline_callback: Callable
+var _modal_blocker: ColorRect
+var _modal_paused := false
 var _cache_skill_slots: Array = []
 var _cache_cds: Dictionary = {}
 var _cache_energy: float = 100.0
@@ -554,6 +585,120 @@ var obj_hint: Label
 
 func bind_arena(a: Node) -> void:
 	arena = a
+
+func has_modal() -> bool:
+	return (trade_panel != null and trade_panel.visible) or (skill_select_panel != null and skill_select_panel.visible) or (replace_panel != null and replace_panel.visible) or (idol_popup != null and idol_popup.visible)
+
+func is_pointer_over_interactive_ui() -> bool:
+	var hovered := get_viewport().gui_get_hovered_control()
+	return hovered != null and is_ancestor_of(hovered)
+
+func dismiss_top_transient() -> bool:
+	if settlement_panel != null and settlement_panel.visible:
+		return false
+	if replace_panel != null and replace_panel.visible:
+		_close_replace_popup()
+		return true
+	if skill_select_panel != null and skill_select_panel.visible:
+		_close_skill_select_popup()
+		return true
+	if idol_popup != null and idol_popup.visible:
+		_close_idol_popup(true)
+		return true
+	if trade_panel != null and trade_panel.visible:
+		_close_trade_panel(true)
+		return true
+	if attr_panel != null and attr_panel.visible:
+		attr_panel.visible = false
+		return true
+	return false
+
+func _input(event: InputEvent) -> void:
+	if _modal_paused and event.is_action_pressed("ui_cancel") and dismiss_top_transient():
+		get_viewport().set_input_as_handled()
+
+func _build_modal_blocker() -> void:
+	_modal_blocker = ColorRect.new()
+	_modal_blocker.name = "ModalBlocker"
+	_modal_blocker.color = Color(0.0, 0.0, 0.0, 0.42)
+	_modal_blocker.mouse_filter = Control.MOUSE_FILTER_STOP
+	_modal_blocker.z_index = 4
+	_modal_blocker.visible = false
+	add_child(_modal_blocker)
+	_refresh_modal_blocker_size()
+	get_viewport().size_changed.connect(_refresh_modal_blocker_size)
+
+func _logical_viewport_size() -> Vector2:
+	var root_window := get_tree().root
+	if root_window != null:
+		var configured_size := Vector2(root_window.content_scale_size)
+		if configured_size.x > 10.0 and configured_size.y > 10.0:
+			return configured_size
+	return LOGICAL_VIEWPORT_SIZE
+
+func _refresh_modal_blocker_size() -> void:
+	if _modal_blocker == null:
+		return
+	_modal_blocker.position = Vector2.ZERO
+	_modal_blocker.size = _logical_viewport_size()
+
+func _refresh_modal_state() -> void:
+	var active := has_modal()
+	if active and attr_panel != null:
+		attr_panel.visible = false
+	if _modal_blocker != null:
+		_modal_blocker.visible = active
+	if active == _modal_paused:
+		return
+	_modal_paused = active
+	if active:
+		get_tree().paused = true
+	elif settlement_panel == null or not settlement_panel.visible:
+		get_tree().paused = false
+
+func _close_replace_popup() -> void:
+	if replace_panel == null:
+		return
+	replace_panel.visible = false
+	pending_pickup_item = {}
+	replace_callback = Callable()
+	sell_callback = Callable()
+	_refresh_modal_state()
+
+func _close_skill_select_popup() -> void:
+	if skill_select_panel == null:
+		return
+	skill_select_panel.visible = false
+	skill_select_callback = Callable()
+	_refresh_modal_state()
+
+func _close_idol_popup(invoke_decline: bool) -> void:
+	if idol_popup == null:
+		return
+	var decline_callback := _idol_decline_callback
+	_idol_decline_callback = Callable()
+	idol_popup.visible = false
+	_refresh_modal_state()
+	if invoke_decline and decline_callback.is_valid():
+		decline_callback.call()
+
+func _clear_trade_dynamic_buttons() -> void:
+	for child in trade_panel.get_children():
+		if child is Button and child != trade_close_button and child not in trade_buttons:
+			child.queue_free()
+
+func _close_trade_panel(invoke_callback: bool) -> void:
+	if trade_panel == null:
+		return
+	_close_replace_popup()
+	_close_skill_select_popup()
+	var close_callback := _trade_close_callback
+	_trade_close_callback = Callable()
+	trade_panel.visible = false
+	_clear_trade_dynamic_buttons()
+	_refresh_modal_state()
+	if invoke_callback and close_callback.is_valid():
+		close_callback.call()
 
 func toggle_attribute_panel() -> void:
 	if attr_panel == null:
@@ -654,8 +799,15 @@ func _build_attribute_panel() -> void:
 	attr_panel.add_child(close_btn)
 
 func _ready() -> void:
-	# 节点树由 hud.tscn 提供，这里仅做逻辑连接与动态内容生成。
+	# 模态打开时世界暂停，HUD 必须继续接收按钮和 Esc 输入。
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	trade_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	skill_select_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	replace_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	idol_popup.mouse_filter = Control.MOUSE_FILTER_STOP
+	_build_modal_blocker()
 
+	# 节点树由 hud.tscn 提供，这里仅做逻辑连接与动态内容生成。
 	# 小地图：内部类实例挂载到场景占位节点
 	minimap = Minimap.new()
 	minimap.size = minimap_placeholder.size
@@ -741,9 +893,9 @@ func update_synergy(bonuses: Dictionary) -> void:
 		var old := message_label.text.split("  [")[0]
 		message_label.text = "%s  [联动: %s]" % [old, " ".join(parts)]
 
-func update_minimap(player_pos: Vector2, enemy_positions: Array, merchant_positions: Array, world_size: Vector2) -> void:
+func update_minimap(player_pos: Vector2, enemy_positions: Array, merchant_positions: Array, world_size: Vector2, roads: Array = [], camps: Array = [], boss_pos: Vector2 = Vector2.ZERO) -> void:
 	if minimap:
-		minimap.update_data(player_pos, enemy_positions, merchant_positions, world_size)
+		minimap.update_data(player_pos, enemy_positions, merchant_positions, world_size, roads, camps, boss_pos)
 
 func update_merchant_count(count: int) -> void:
 	if stats_label == null:
@@ -778,9 +930,7 @@ func _build_objective_bar() -> void:
 	objective_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	objective_panel.add_theme_stylebox_override("panel", _panel_bg(Color(0.06, 0.08, 0.12, 0.92), Color(0.45, 0.7, 1.0, 0.8)))
 	objective_panel.size = Vector2(bar_w, bar_h)
-	var vps: Vector2 = get_viewport().size
-	if vps.x < 10:
-		vps = Vector2(1280, 720)
+	var vps := _logical_viewport_size()
 	objective_panel.position = Vector2((vps.x - bar_w) / 2.0, 6.0)
 	add_child(objective_panel)
 
@@ -820,9 +970,7 @@ func _build_settlement_panel() -> void:
 	settlement_panel.process_mode = Node.PROCESS_MODE_ALWAYS  # 暂停后仍可交互
 	settlement_panel.z_index = 100
 	settlement_panel.visible = false
-	var vps: Vector2 = get_viewport().size
-	if vps.x < 10:
-		vps = Vector2(1280, 720)
+	var vps := _logical_viewport_size()
 	settlement_panel.position = Vector2((vps.x - 520.0) / 2.0, (vps.y - 360.0) / 2.0)
 	settlement_panel.size = Vector2(520, 360)
 	settlement_panel.add_theme_stylebox_override("panel", _panel_bg(Color(0.05, 0.07, 0.11, 0.97), Color(0.5, 0.7, 1.0, 0.9)))
@@ -1052,16 +1200,13 @@ func _refill_grid(grid: HBoxContainer, area: String, items: Array, click_cb: Cal
 		grid.add_child(slot)
 
 func show_trade_panel(merchandise: Array, upgrade_cb: Callable, delete_cb: Callable, buy_cb: Callable, sell_cb: Callable, on_close: Callable) -> void:
-	# 清理上次残留的操作按钮
-	hide_trade_panel()
+	# 重新打开交易时仅清理旧 UI，不提前结束当前商人会话。
+	_close_trade_panel(false)
+	_trade_close_callback = on_close
 	trade_panel.visible = true
 	trade_panel.z_index = 5
-	# 清除旧的关闭回调
 	_disconnect_one(trade_close_button, "pressed")
-	trade_close_button.pressed.connect(func():
-		trade_panel.visible = false
-		on_close.call()
-	)
+	trade_close_button.pressed.connect(func(): _close_trade_panel(true))
 
 	for i in range(4):
 		trade_buttons[i].visible = false
@@ -1097,15 +1242,13 @@ func show_trade_panel(merchandise: Array, upgrade_cb: Callable, delete_cb: Calla
 	sell_btn.text = "出售物品（卖出仓库装备）"
 	sell_btn.pressed.connect(func(): sell_cb.call())
 	trade_panel.add_child(sell_btn)
+	_refresh_modal_state()
 
 func hide_trade_panel() -> void:
-	trade_panel.visible = false
-	for child in trade_panel.get_children():
-		if child is Button and child != trade_close_button:
-			if child not in trade_buttons:
-				child.queue_free()
+	_close_trade_panel(false)
 
 func show_replace_popup(warehouse: Array, pickup_item: Dictionary, callback: Callable) -> void:
+	_close_replace_popup()
 	pending_pickup_item = pickup_item
 	replace_callback = callback
 	replace_panel.visible = true
@@ -1132,9 +1275,11 @@ func show_replace_popup(warehouse: Array, pickup_item: Dictionary, callback: Cal
 			replace_buttons[i].modulate = Color.WHITE
 		var idx: int = i
 		replace_buttons[i].pressed.connect(func(): _on_replace_selected(idx))
+	_refresh_modal_state()
 
 # 出售弹窗：复用替换面板的按钮组，列出仓库物品（装备可售，技能书置灰）
 func show_sell_popup(warehouse: Array, callback: Callable) -> void:
+	_close_replace_popup()
 	sell_callback = callback
 	replace_panel.visible = true
 	replace_panel.z_index = max(trade_panel.z_index, 0) + 2  # 确保在交易面板上层
@@ -1163,23 +1308,24 @@ func show_sell_popup(warehouse: Array, callback: Callable) -> void:
 			replace_buttons[i].disabled = true
 		var idx: int = i
 		replace_buttons[i].pressed.connect(func(): _on_sell_selected(idx))
+	_refresh_modal_state()
 
 func _on_sell_selected(index: int) -> void:
-	replace_panel.visible = false
-	if sell_callback.is_valid():
-		sell_callback.call(index)
+	var callback := sell_callback
+	_close_replace_popup()
+	if callback.is_valid():
+		callback.call(index)
 
-# 替换/出售弹窗共用的取消按钮（原本未连接，无关闭功能）
 func _connect_replace_cancel(btn_text: String) -> void:
-	var cancel_btn := replace_panel.get_node("CancelBtn") as Button
-	_disconnect_one(cancel_btn, "pressed")
-	cancel_btn.text = btn_text
-	cancel_btn.pressed.connect(func(): replace_panel.visible = false)
+	_disconnect_one(replace_cancel_button, "pressed")
+	replace_cancel_button.text = btn_text
+	replace_cancel_button.pressed.connect(func(): _close_replace_popup())
 
 func _on_replace_selected(index: int) -> void:
-	replace_panel.visible = false
-	if replace_callback.is_valid():
-		replace_callback.call(index)
+	var callback := replace_callback
+	_close_replace_popup()
+	if callback.is_valid():
+		callback.call(index)
 
 func update_energy_for_slots(energy: float) -> void:
 	_cache_energy = energy
@@ -1195,9 +1341,12 @@ func update_energy_for_slots(energy: float) -> void:
 			slot.queue_redraw()
 
 func show_skill_select_popup(title: String, skills: Array, callback: Callable) -> void:
+	_close_skill_select_popup()
 	skill_select_panel.visible = true
-	skill_select_panel.z_index = max(trade_panel.z_index, 0) + 1  # 确保在交易面板上层
+	skill_select_panel.z_index = max(trade_panel.z_index, 0) + 1
 	skill_select_callback = callback
+	_disconnect_one(skill_select_close_button, "pressed")
+	skill_select_close_button.pressed.connect(func(): _close_skill_select_popup())
 
 	var sp_title := skill_select_panel.get_node("Title") as Label
 	sp_title.text = title
@@ -1217,32 +1366,34 @@ func show_skill_select_popup(title: String, skills: Array, callback: Callable) -
 		else:
 			skill_select_buttons[i].visible = true
 			var key: String = ["1","2","3","4","5","6"][i]
-			var cast_type: String = String(item.get("cast_type", "active"))
-			var type_str: String = "主动"
-			skill_select_buttons[i].text = "[%s] %s · %s · %s" % [key, item.get("name", "物品"), item.get("quality", "白"), type_str]
+			skill_select_buttons[i].text = "[%s] %s · %s · 主动" % [key, item.get("name", "物品"), item.get("quality", "白")]
 			skill_select_buttons[i].modulate = Color.WHITE
 		var idx: int = i
 		skill_select_buttons[i].pressed.connect(func(): _on_skill_selected(idx))
+	_refresh_modal_state()
 
 func _on_skill_selected(index: int) -> void:
-	skill_select_panel.visible = false
-	if skill_select_callback.is_valid():
-		skill_select_callback.call(index)
+	var callback := skill_select_callback
+	_close_skill_select_popup()
+	if callback.is_valid():
+		callback.call(index)
 
 func show_idol_popup(cost_text: String, on_accept: Callable, on_decline: Callable) -> void:
-	var popup := get_node_or_null("IdolPopup") as Panel
-	if not popup: return
+	_close_idol_popup(true)
+	var popup := idol_popup
+	if popup == null:
+		return
 	var title := popup.get_node("Title") as Label
 	var desc := popup.get_node("Desc") as Label
-	var accept := popup.get_node("AcceptBtn") as Button
-	var decline := popup.get_node("DeclineBtn") as Button
 	title.text = "远古祭坛"
 	desc.text = "%s\n\n回报：传说品质主动技能书" % cost_text
-	_disconnect_one(accept, "pressed")
-	_disconnect_one(decline, "pressed")
-	accept.pressed.connect(func(): popup.visible = false; on_accept.call())
-	decline.pressed.connect(func(): popup.visible = false; on_decline.call())
+	_idol_decline_callback = on_decline
+	_disconnect_one(idol_accept_button, "pressed")
+	_disconnect_one(idol_decline_button, "pressed")
+	idol_accept_button.pressed.connect(func(): _close_idol_popup(false); on_accept.call())
+	idol_decline_button.pressed.connect(func(): _close_idol_popup(true))
 	popup.visible = true
+	_refresh_modal_state()
 
 func _disconnect_one(btn: Button, signal_name: String) -> void:
 	for conn in btn.get_signal_connection_list(signal_name):
