@@ -19,9 +19,19 @@ var attack_timer: float = 0.0
 var attack_range: float = 44.0
 var follow_leash: float = 130.0  # 跟随半径
 
-# 指令（由 arena 的右键下达）
-var command_target_pos: Vector2 = Vector2.ZERO  # 移动指令（世界坐标）
-var command_attack_target: Node2D = null        # 集火指令（敌人）
+# 指令与姿态（由 CommandSystem 下达）
+enum OrderKind { FOLLOW, MOVE, ATTACK_TARGET, ATTACK_MOVE, HOLD, STOP }
+enum Stance { FOLLOW, HOLD }
+
+var command_target_pos: Vector2 = Vector2.ZERO
+var command_attack_target: Node2D = null
+var order_kind: int = OrderKind.FOLLOW
+var stance: int = Stance.FOLLOW
+var order_destination: Vector2 = Vector2.ZERO
+var hold_anchor: Vector2 = Vector2.ZERO
+var formation_offset: Vector2 = Vector2.ZERO
+var vision_radius: float = 420.0
+var can_take_damage := false
 var selected: bool = false
 var _path_points: PackedVector2Array = PackedVector2Array()
 var _path_index := 0
@@ -39,6 +49,9 @@ var _body_color: Color = Color(0.4, 0.9, 1.0)
 
 
 func _ready() -> void:
+	add_to_group("summon")
+	add_to_group("vision_source")
+	set_meta("vision_radius", vision_radius)
 	collision_layer = 4
 	# 召唤物不阻挡英雄移动，仍与敌人和世界阻挡物碰撞。
 	collision_mask = 2 | 8
@@ -83,32 +96,48 @@ func _physics_process(delta: float) -> void:
 
 func _think(delta: float) -> void:
 	var target_enemy: Enemy = null
-	var move_pos: Vector2 = Vector2.ZERO
+	var move_pos := Vector2.ZERO
 	var need_move := false
 
-	# 1) 显式集火指令优先
-	if command_attack_target != null and is_instance_valid(command_attack_target) and not command_attack_target.is_dead():
-		target_enemy = command_attack_target
-	# 2) 显式移动指令
-	elif command_target_pos != Vector2.ZERO:
-		move_pos = command_target_pos
-		need_move = true
-		if global_position.distance_to(command_target_pos) < 12.0:
-			command_target_pos = Vector2.ZERO
-	# 3) 默认 AI：跟随英雄 + 打英雄集火目标 / 附近最近敌人
-	else:
-		var focus: Enemy = null
-		if arena != null and arena.mark_target != null and is_instance_valid(arena.mark_target) and not arena.mark_target.is_dead():
-			focus = arena.mark_target
-		if focus == null:
-			focus = _nearest_enemy_to(global_position, 380.0)
-		if focus != null:
-			target_enemy = focus
-		elif owner_player != null and global_position.distance_to(owner_player.global_position) > follow_leash:
-			move_pos = owner_player.global_position
+	match order_kind:
+		OrderKind.ATTACK_TARGET:
+			if _is_valid_enemy(command_attack_target):
+				target_enemy = command_attack_target as Enemy
+			else:
+				issue_stop()
+		OrderKind.MOVE:
+			move_pos = order_destination
 			need_move = true
+			if global_position.distance_to(order_destination) <= 12.0:
+				issue_stop()
+		OrderKind.ATTACK_MOVE:
+			target_enemy = _nearest_enemy_to(global_position, 240.0)
+			if target_enemy == null:
+				move_pos = order_destination
+				need_move = true
+				if global_position.distance_to(order_destination) <= 12.0:
+					issue_stop()
+		OrderKind.HOLD:
+			target_enemy = _nearest_enemy_to(hold_anchor, 180.0)
+			if target_enemy != null and target_enemy.global_position.distance_to(hold_anchor) > 180.0:
+				target_enemy = null
+			if target_enemy == null and global_position.distance_to(hold_anchor) > 12.0:
+				move_pos = hold_anchor
+				need_move = true
+		OrderKind.FOLLOW:
+			var focus: Enemy = null
+			if arena != null and arena.command_system != null:
+				focus = arena.command_system.get_hero_combat_target()
+			if focus == null:
+				focus = _nearest_enemy_to(global_position, 260.0)
+			if focus != null:
+				target_enemy = focus
+			elif owner_player != null:
+				move_pos = owner_player.global_position + formation_offset
+				need_move = global_position.distance_to(move_pos) > follow_leash
+		OrderKind.STOP:
+			pass
 
-	# 计算期望速度：遇到阻挡时按世界路径绕行。
 	var desired := Vector2.ZERO
 	if target_enemy != null:
 		var dist := global_position.distance_to(target_enemy.global_position)
@@ -119,15 +148,60 @@ func _think(delta: float) -> void:
 	elif need_move:
 		desired = _path_direction_to(move_pos, delta) * speed
 
-	# 分离力：避免召唤物互相重叠堆叠
 	var sep := _separation()
-	var final_vel: Vector2
-	if desired != Vector2.ZERO:
-		final_vel = desired + sep * speed * 0.6
-	else:
-		final_vel = sep * speed * 0.9
-	velocity = final_vel
+	velocity = desired + sep * speed * (0.6 if desired != Vector2.ZERO else 0.9)
 	move_and_slide()
+
+
+func issue_move(destination: Vector2) -> void:
+	order_kind = OrderKind.MOVE
+	order_destination = destination
+	command_target_pos = destination
+	command_attack_target = null
+
+
+func issue_attack_target(target: Enemy) -> void:
+	if not _is_valid_enemy(target):
+		return
+	order_kind = OrderKind.ATTACK_TARGET
+	command_attack_target = target
+	command_target_pos = Vector2.ZERO
+
+
+func issue_attack_move(destination: Vector2) -> void:
+	order_kind = OrderKind.ATTACK_MOVE
+	order_destination = destination
+	command_target_pos = destination
+	command_attack_target = null
+
+
+func issue_hold() -> void:
+	order_kind = OrderKind.HOLD
+	stance = Stance.HOLD
+	hold_anchor = global_position
+	command_target_pos = Vector2.ZERO
+	command_attack_target = null
+
+
+func issue_follow(offset: Vector2 = Vector2.ZERO) -> void:
+	order_kind = OrderKind.FOLLOW
+	stance = Stance.FOLLOW
+	formation_offset = offset
+	command_target_pos = Vector2.ZERO
+	command_attack_target = null
+
+
+func issue_stop() -> void:
+	order_kind = OrderKind.STOP
+	command_target_pos = Vector2.ZERO
+	command_attack_target = null
+	velocity = Vector2.ZERO
+	_path_points.clear()
+	_path_index = 0
+
+
+func _is_valid_enemy(target: Node2D) -> bool:
+	return target is Enemy and is_instance_valid(target) and not (target as Enemy).is_dead() and (arena == null or arena.fog == null or arena.fog.is_position_visible(target.global_position))
 
 func _path_direction_to(destination: Vector2, delta: float) -> Vector2:
 	if global_position.distance_to(destination) <= 4.0:
@@ -166,13 +240,14 @@ func _separation() -> Vector2:
 
 func _attack(enemy: Enemy) -> void:
 	attack_timer = attack_interval
-	var dir := global_position.direction_to(enemy.global_position)
-	enemy.take_damage(damage, dir, 30.0)
-	if arena != null and arena.has_method("_spawn_damage_number"):
-		arena._spawn_damage_number(enemy.global_position, damage, false)
-	if enemy.is_dead() and arena != null and arena.has_method("_on_enemy_killed"):
-		arena._on_enemy_killed(enemy)
-	command_attack_target = null  # 目标已死，回到默认 AI
+	if arena != null and arena.combat != null:
+		arena.combat.resolve_summon_attack(self, enemy, damage)
+	else:
+		enemy.take_damage(damage, global_position.direction_to(enemy.global_position), 30.0)
+	if enemy.is_dead():
+		command_attack_target = null
+		if order_kind == OrderKind.ATTACK_TARGET:
+			issue_stop()
 
 
 func _nearest_enemy_to(from: Vector2, max_dist: float) -> Enemy:
@@ -181,12 +256,21 @@ func _nearest_enemy_to(from: Vector2, max_dist: float) -> Enemy:
 	var best: Enemy = null
 	var best_d := max_dist * max_dist
 	for e in arena.enemies_root.get_children():
-		if e is Enemy and not e.is_dead():
+		if e is Enemy and not e.is_dead() and (arena.fog == null or arena.fog.is_position_visible(e.global_position)):
 			var d := from.distance_squared_to(e.global_position)
 			if d < best_d:
 				best_d = d
 				best = e
 	return best
+
+
+func take_damage(amount: float, _knockback_dir: Vector2 = Vector2.ZERO, _kb_strength: float = 0.0, _attacker: Node = null) -> void:
+	_flash_timer = 0.08
+	_body_color = Color(1.0, 0.45, 0.35)
+	queue_redraw()
+	if not can_take_damage:
+		return
+	hp = maxf(hp - amount, 0.0)
 
 
 func _update_health_bar() -> void:

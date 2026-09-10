@@ -69,6 +69,8 @@ func _initialize() -> void:
 		hud.get_node("IdolPopup") as Control,
 		hud.get_node("ReplacePanel") as Control,
 		hud.attr_panel,
+		hud.selection_panel,
+		hud.command_panel,
 		hud.objective_panel,
 		hud.settlement_panel,
 		hud.pause_menu,
@@ -86,6 +88,8 @@ func _initialize() -> void:
 	_expect_size(hud.get_node("SkillPanel") as Control, Vector2(380, 102), "技能面板", failures)
 	_expect_size(hud.get_node("GroundZonePlaceholder") as Control, Vector2(380, 44), "丢弃区", failures)
 	_expect_size(hud.get_node("MinimapPlaceholder") as Control, Vector2(112, 80), "小地图", failures)
+	_expect_size(hud.selection_panel, Vector2(300, 92), "选择信息", failures)
+	_expect_size(hud.command_panel, Vector2(240, 192), "命令卡", failures)
 	_expect_size(hud.objective_panel, Vector2(480, 26), "目标条", failures)
 	_expect_size(hud.pause_menu, Vector2(360, 260), "暂停菜单", failures)
 	_validate_compact_grid(hud.warehouse_grid, 6, Vector2(56, 56), "仓库槽", failures)

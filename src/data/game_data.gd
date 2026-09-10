@@ -45,6 +45,10 @@ static func get_heroes() -> Array:
 			"attack_damage": 24.0,
 			"attack_interval": 0.46,
 			"attack_range": 72.0,
+			"attack_point": 0.16,
+			"backswing": 0.14,
+			"acquisition_range": 280.0,
+			"vision_radius": 760.0,
 			"description": "均衡型。"
 		}
 	]

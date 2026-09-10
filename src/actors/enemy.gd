@@ -232,6 +232,9 @@ func _tick_statuses(delta: float) -> void:
 				var base_w := 32.0
 				var ratio := clampf(hp / maxf(max_hp, 1.0), 0.0, 1.0)
 				health_bar.size.x = base_w * ratio
+			if hp <= 0.0:
+				_resolve_dot_death()
+				return
 		if dot_remaining <= 0.0:
 			dot_dps = 0.0
 			dot_accum = 0.0
@@ -240,6 +243,12 @@ func _tick_statuses(delta: float) -> void:
 		if statuses[name] <= 0.0:
 			statuses.erase(name)
 	_refresh_status_tint()
+
+func _resolve_dot_death() -> void:
+	if hp > 0.0:
+		return
+	if world_ref != null and world_ref.has_method("_on_enemy_killed"):
+		world_ref.call("_on_enemy_killed", self)
 
 func _is_fully_disabled() -> bool:
 	return has_status("sleep") or has_status("hex") or has_status("banish") or has_status("polymorph")
@@ -274,6 +283,8 @@ func _physics_process(delta: float) -> void:
 
 	# 状态效果计时（减速/定身/睡眠/妖术/放逐/沉默）
 	_tick_statuses(delta)
+	if hp <= 0.0:
+		return
 	# 完全失能：睡眠/妖术/放逐，原地不动不攻击
 	if _is_fully_disabled():
 		velocity = velocity.move_toward(Vector2.ZERO, speed * 4.0 * delta)
@@ -430,7 +441,7 @@ func _fire_ranged_projectile(dir: Vector2) -> void:
 	proj.faction = Projectile.Faction.ENEMY
 	proj.attacker = self
 	proj.collision_layer = 0
-	proj.collision_mask = 1 | 8
+	proj.collision_mask = 1 | 4 | 8
 	if world_ref != null and world_ref.has_method("_resolve_enemy_projectile_hit"):
 		proj.hit_resolver = Callable(world_ref, "_resolve_enemy_projectile_hit")
 	var collision := CollisionShape2D.new()
@@ -494,10 +505,10 @@ func play_death_animation() -> void:
 	var bar_bg := get_node_or_null("HealthBarBg")
 	if bar_bg: bar_bg.visible = false
 
-	# 自爆虫：在英雄附近死亡时走统一受伤管线，避免伤害到同阵营敌人。
-	if behavior == Behavior.EXPLODER and world_ref != null and world_ref.has_method("_deal_damage_to_player"):
+	# 自爆虫只伤害当前追击的友方目标，可作用于英雄或承担仇恨的召唤物。
+	if behavior == Behavior.EXPLODER and world_ref != null and world_ref.has_method("_deal_damage_to_friendly"):
 		if chase_target != null and is_instance_valid(chase_target) and chase_target.global_position.distance_to(global_position) < 80.0:
-			world_ref.call("_deal_damage_to_player", damage * 2.0, self)
+			world_ref.call("_deal_damage_to_friendly", chase_target, damage * 2.0, self)
 
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(self, "modulate", Color.WHITE, 0.06)

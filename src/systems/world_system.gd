@@ -78,6 +78,7 @@ func _do_upgrade(merchant: MerchantNPC, idx: int) -> void:
 	elif s.get("quality", "white") == "blue":
 		new_quality = "purple"
 	arena.skill_slots[idx]["quality"] = new_quality
+	arena.on_loadout_changed(PackedInt32Array([idx]))
 	arena.hud.set_message("升级【%s】→ %s！" % [s.get("name", "技能"), new_quality])
 	arena.inventory._refresh_hud_slots()
 	_open_merchant_trade(merchant)  # 重新打开交易面板，玩家可继续操作
@@ -94,6 +95,7 @@ func _do_delete(merchant: MerchantNPC, idx: int) -> void:
 	arena.gold -= 15
 	arena.hud.set_message("已删除【%s】" % arena.skill_slots[idx].get("name", "技能"))
 	arena.skill_slots[idx] = {}
+	arena.on_loadout_changed(PackedInt32Array([idx]))
 	arena.inventory._refresh_hud_slots()
 	_open_merchant_trade(merchant)  # 重新打开交易面板，玩家可继续操作
 
@@ -185,7 +187,7 @@ func _create_enemy(behavior: int, enemy_type: int, pos: Vector2) -> Enemy:
 	_set_enemy_stats(enemy)
 	enemy.home_leash = 520.0 if enemy_type == Enemy.EnemyType.NORMAL else 620.0
 	enemy.reengage_range = 340.0 if enemy_type == Enemy.EnemyType.NORMAL else 420.0
-	enemy.set_chase_target(arena.player)
+	enemy.chase_target = null
 	enemy.world_ref = self
 	return enemy
 
@@ -265,17 +267,27 @@ func _process_enemy_attacks(delta: float) -> void:
 		enemy.attack_timer -= delta
 		if enemy.attack_timer > 0.0:
 			continue
-		# 攻击判定：近战与 AI 起手距离统一为 52px。
 		var e := enemy as Enemy
+		var target := e.chase_target
+		if target == null or not is_instance_valid(target):
+			continue
 		var reach := 52.0
 		if e.behavior == Enemy.Behavior.RANGED:
 			reach = e.ranged_attack_range
-		if arena.player.global_position.distance_to(e.global_position) < reach and has_line_of_sight(e.global_position, arena.player.global_position):
-			_deal_damage_to_player(e.damage, e)
+		if e.global_position.distance_to(target.global_position) < reach and has_line_of_sight(e.global_position, target.global_position):
+			_deal_damage_to_friendly(target, e.damage, e)
 
 func _resolve_enemy_projectile_hit(body: Node2D, projectile) -> void:
-	if body == arena.player:
-		_deal_damage_to_player(float(projectile.damage), projectile.attacker)
+	if body == arena.player or body.is_in_group("summon"):
+		_deal_damage_to_friendly(body, float(projectile.damage), projectile.attacker)
+
+func _deal_damage_to_friendly(target: Node2D, amount: float, attacker: Node = null) -> void:
+	if target == arena.player:
+		_deal_damage_to_player(amount, attacker)
+		return
+	if target is Summon and is_instance_valid(target):
+		target.take_damage(amount, Vector2.ZERO, 0.0, attacker)
+		arena._spawn_damage_number(target.global_position, amount, false)
 
 func _deal_damage_to_player(amount: float, attacker: Node = null) -> void:
 	if amount <= 0.0 or arena.player_invuln > 0.0 or arena._is_dead:
@@ -291,12 +303,17 @@ func _deal_damage_to_player(amount: float, attacker: Node = null) -> void:
 		arena._handle_player_death()
 
 func _process_enemy_detection() -> void:
-	# 探测玩家：敌人是否在 detection_range 内？
 	for enemy in arena.enemies_root.get_children():
-		if enemy is Enemy and not enemy.is_dead():
-			var dist := arena.player.global_position.distance_to(enemy.global_position)
-			if dist <= enemy.detection_range:
-				enemy.chase_target = arena.player
+		if not (enemy is Enemy) or enemy.is_dead():
+			continue
+		var e := enemy as Enemy
+		var target: Node2D = null
+		if arena.threat != null:
+			target = arena.threat.choose_target(e)
+		if target == null and arena.player.global_position.distance_to(e.global_position) <= e.detection_range:
+			target = arena.player
+		if target != null:
+			e.chase_target = target
 
 func _process_respawns(delta: float) -> void:
 	arena.elapsed_time += delta
@@ -324,6 +341,13 @@ func _process_respawns(delta: float) -> void:
 # 击杀
 # ============================================================
 func _on_enemy_killed(enemy: Enemy) -> void:
+	if enemy == null or not is_instance_valid(enemy) or enemy.get_meta("kill_resolved", false):
+		return
+	enemy.set_meta("kill_resolved", true)
+	if arena.threat != null:
+		arena.threat.clear_enemy(enemy)
+	if arena.command_system != null:
+		arena.command_system.notify_enemy_removed(enemy)
 	arena.kills += 1
 
 	# 经验与升级（升级获得 1 技能点）

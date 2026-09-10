@@ -54,16 +54,16 @@ func _initialize() -> void:
 	# 低频驱动：覆盖技能和输入路径，避免每帧生成大批临时效果拖慢测试。
 	var max_frames := 300
 	var frames := 0
-	var moves := ["move_up", "move_right", "move_left", "move_down"]
 
 	while frames < max_frames and is_instance_valid(arena):
 		frames += 1
 		# 玩家设为无敌，避免死亡触发场景重载打断测试
 		arena.player.hp = 100000.0
 
-		# 移动（轮询）
-		var mv: String = moves[frames % moves.size()]
-		Input.action_press(mv)
+		# 鼠标右键移动订单（替代已删除的 WASD 直控）。
+		if frames % 45 == 1:
+			var move_target: Vector2 = arena.world_layout.project_to_walkable(arena.player.global_position + Vector2(160, 80))
+			arena._handle_right_click(move_target)
 
 		# 直接施放每个主动技能（清冷却 + 保证能量）
 		if frames % 60 == 1:
@@ -169,8 +169,7 @@ func _initialize() -> void:
 
 		await process_frame
 
-		# 释放本帧输入
-		Input.action_release(mv)
+		# 释放本帧技能与鼠标输入。
 		for a in arena.skill_actions:
 			Input.action_release(a)
 		_emit_mouse(MOUSE_BUTTON_RIGHT, false)
@@ -217,8 +216,8 @@ func _emit_mouse_motion() -> void:
 
 
 func _setup_input() -> void:
-	for a in ["move_up", "move_down", "move_left", "move_right",
-			"skill_1", "skill_2", "skill_3", "skill_4", "skill_5", "skill_6",
-			"interact", "summon_spawn", "attributes"]:
+	for a in ["skill_1", "skill_2", "skill_3", "skill_4", "skill_5", "skill_6",
+			"interact", "pickup", "summon_spawn", "attributes", "select_hero", "select_all_summons",
+			"order_stop", "order_hold", "order_attack_move", "order_follow"]:
 		if not InputMap.has_action(a):
 			InputMap.add_action(a)

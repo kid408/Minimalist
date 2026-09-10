@@ -10,10 +10,15 @@ const FUSION_MINI_SIZE := Vector2(56, 16)
 const FUSION_UNIT_SIZE := Vector2(56, 68)
 const BOTTOM_SLOT_SPACING := 4
 
+signal command_requested(command: String)
+signal minimap_world_clicked(world_position: Vector2)
+
 var arena: Node = null
 
 class Minimap:
 	extends Control
+
+	signal world_clicked(world_position: Vector2)
 
 	const _map_tex := preload("res://assets/Map.png")
 
@@ -25,13 +30,15 @@ class Minimap:
 	var _boss_position := Vector2.ZERO
 	var _world_size := Vector2(1280, 720)
 	var _map_scale := 1.0
+	var _camera_world_rect := Rect2()
+	var _fog_texture: Texture2D
 
 	func _ready() -> void:
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mouse_filter = Control.MOUSE_FILTER_STOP
 		custom_minimum_size = Vector2(112, 80)
 		queue_redraw()
 
-	func update_data(player_pos: Vector2, enemies: Array, merchants: Array, world: Vector2, roads: Array = [], camps: Array = [], boss_pos: Vector2 = Vector2.ZERO) -> void:
+	func update_data(player_pos: Vector2, enemies: Array, merchants: Array, world: Vector2, roads: Array = [], camps: Array = [], boss_pos: Vector2 = Vector2.ZERO, camera_rect: Rect2 = Rect2(), fog_texture: Texture2D = null) -> void:
 		_player_pos = player_pos
 		_enemy_positions = enemies.duplicate()
 		_merchant_positions = merchants.duplicate()
@@ -39,57 +46,72 @@ class Minimap:
 		_camp_positions = camps.duplicate()
 		_boss_position = boss_pos
 		_world_size = world
-		# 计算缩放：让地图适配 minimap 尺寸
+		_camera_world_rect = camera_rect
+		_fog_texture = fog_texture
 		var map_w: float = size.x - 6
 		var map_h: float = size.y - 6
 		_map_scale = minf(map_w / maxf(world.x, 1.0), map_h / maxf(world.y, 1.0))
 		queue_redraw()
 
+	func world_to_local(world_pos: Vector2) -> Vector2:
+		var rect := _map_rect()
+		return rect.position + world_pos * _map_scale
+
+	func local_to_world(local_pos: Vector2) -> Vector2:
+		var rect := _map_rect()
+		var world_pos := (local_pos - rect.position) / maxf(_map_scale, 0.0001)
+		return Vector2(clampf(world_pos.x, 0.0, _world_size.x), clampf(world_pos.y, 0.0, _world_size.y))
+
+	func _map_rect() -> Rect2:
+		return Rect2(Vector2(3, 3), _world_size * _map_scale)
+
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			if _map_rect().has_point(event.position):
+				world_clicked.emit(local_to_world(event.position))
+				accept_event()
+
 	func _draw() -> void:
-		var r := Rect2(Vector2(3, 3), size - Vector2(6, 6))
-		# 背景：与主地图使用同一张 Map.png（按世界尺寸等比适配，左上对齐，与下方点阵坐标一致）
-		draw_rect(r, Color(0.02, 0.03, 0.06, 0.85), true)
-		var bg_rect := Rect2(r.position, _world_size * _map_scale)
-		draw_texture_rect(_map_tex, bg_rect, false)
-		draw_rect(r, Color(0.3, 0.4, 0.55, 0.7), false, 1)
+		var bounds := Rect2(Vector2(3, 3), size - Vector2(6, 6))
+		var map_rect := _map_rect()
+		draw_rect(bounds, Color(0.02, 0.03, 0.06, 0.85), true)
+		draw_texture_rect(_map_tex, map_rect, false)
 
-		# 坐标转换
-		var offset := r.position
-		var sc := _map_scale
-
-		# 世界道路、精英营和 Boss 区：保持与主地图相同的探索方向感。
 		for road in _roads:
 			var mini_road := PackedVector2Array()
 			for world_point in road:
-				mini_road.append(offset + Vector2(world_point.x * sc, world_point.y * sc))
+				mini_road.append(world_to_local(world_point))
 			if mini_road.size() >= 2:
 				draw_polyline(mini_road, Color(0.72, 0.59, 0.30, 0.82), 1.2, true)
 		for camp_pos in _camp_positions:
-			var camp_point := offset + Vector2(camp_pos.x * sc, camp_pos.y * sc)
-			if r.has_point(camp_point):
+			var camp_point := world_to_local(camp_pos)
+			if map_rect.has_point(camp_point):
 				draw_circle(camp_point, 1.8, Color(1.0, 0.72, 0.20, 0.9))
-		var boss_point := offset + Vector2(_boss_position.x * sc, _boss_position.y * sc)
-		if _boss_position != Vector2.ZERO and r.has_point(boss_point):
+		var boss_point := world_to_local(_boss_position)
+		if _boss_position != Vector2.ZERO and map_rect.has_point(boss_point):
 			draw_circle(boss_point, 3.2, Color(0.84, 0.25, 0.72, 0.95))
-			draw_arc(boss_point, 4.4, 0.0, TAU, 20, Color(1.0, 0.68, 0.92, 0.9), 1.0, true)
 
-		# 敌人（红色小点）
 		for pos in _enemy_positions:
-			var p: Vector2 = offset + Vector2(pos.x * sc, pos.y * sc)
-			if r.has_point(p):
-				draw_circle(p, 2.0, Color(1, 0.3, 0.2, 0.8))
-
-		# 商人（金色小点）
+			var point := world_to_local(pos)
+			if map_rect.has_point(point):
+				draw_circle(point, 2.0, Color(1, 0.3, 0.2, 0.8))
 		for pos in _merchant_positions:
-			var p: Vector2 = offset + Vector2(pos.x * sc, pos.y * sc)
-			if r.has_point(p):
-				draw_circle(p, 2.5, Color(1, 0.8, 0.3, 0.9))
+			var point := world_to_local(pos)
+			if map_rect.has_point(point):
+				draw_circle(point, 2.5, Color(1, 0.8, 0.3, 0.9))
 
-		# 玩家（蓝色亮点）
-		var pp: Vector2 = offset + Vector2(_player_pos.x * sc, _player_pos.y * sc)
-		if r.has_point(pp):
-			draw_circle(pp, 3.0, Color(0.3, 0.7, 1.0, 1.0))
-			draw_circle(pp, 3.5, Color(1, 1, 1, 0.4))
+		var player_point := world_to_local(_player_pos)
+		if map_rect.has_point(player_point):
+			draw_circle(player_point, 3.0, Color(0.3, 0.7, 1.0, 1.0))
+			draw_circle(player_point, 3.5, Color(1, 1, 1, 0.4))
+
+		if _fog_texture != null:
+			draw_texture_rect(_fog_texture, map_rect, false)
+		if _camera_world_rect.size.length_squared() > 0.0:
+			var camera_top_left := world_to_local(_camera_world_rect.position)
+			var camera_size := _camera_world_rect.size * _map_scale
+			draw_rect(Rect2(camera_top_left, camera_size), Color(0.72, 0.95, 1.0, 0.9), false, 1.0)
+		draw_rect(bounds, Color(0.3, 0.4, 0.55, 0.7), false, 1)
 
 
 class GroundDropZone:
@@ -561,6 +583,11 @@ class InventorySlot:
 var ground_zone: Panel
 var ground_label: Label
 var minimap: Minimap
+var selection_panel: Panel
+var selection_label: Label
+var order_label: Label
+var target_label: Label
+var command_panel: Panel
 var trade_buttons: Array = []
 var trade_labels: Array = []
 var trade_callback: Callable
@@ -756,6 +783,72 @@ func _build_pause_menu() -> void:
 	quit_button.pressed.connect(quit_game)
 	pause_menu.add_child(quit_button)
 
+func _build_selection_panel() -> void:
+	selection_panel = Panel.new()
+	selection_panel.name = "SelectionPanel"
+	selection_panel.position = Vector2(12, 154)
+	selection_panel.size = Vector2(300, 92)
+	selection_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	selection_panel.add_theme_stylebox_override("panel", _panel_bg(Color(0.05, 0.08, 0.12, 0.88), Color(0.32, 0.72, 0.96, 0.74)))
+	add_child(selection_panel)
+
+	selection_label = Label.new()
+	selection_label.position = Vector2(10, 8)
+	selection_label.size = Vector2(280, 20)
+	selection_label.add_theme_font_size_override("font_size", 12)
+	selection_label.modulate = Color(0.68, 0.9, 1.0)
+	selection_panel.add_child(selection_label)
+
+	order_label = Label.new()
+	order_label.position = Vector2(10, 32)
+	order_label.size = Vector2(280, 18)
+	order_label.add_theme_font_size_override("font_size", 11)
+	selection_panel.add_child(order_label)
+
+	target_label = Label.new()
+	target_label.position = Vector2(10, 54)
+	target_label.size = Vector2(280, 28)
+	target_label.add_theme_font_size_override("font_size", 11)
+	target_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	selection_panel.add_child(target_label)
+	update_selection({"text": "英雄", "summon_count": 0})
+	update_order({"hero_order": "待命"})
+	update_target({})
+
+func _build_command_panel() -> void:
+	command_panel = Panel.new()
+	command_panel.name = "CommandPanel"
+	command_panel.position = Vector2(1188, 606)
+	command_panel.size = Vector2(240, 192)
+	command_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	command_panel.add_theme_stylebox_override("panel", _panel_bg(Color(0.05, 0.08, 0.12, 0.92), Color(0.46, 0.74, 1.0, 0.86)))
+	add_child(command_panel)
+
+	var title := Label.new()
+	title.position = Vector2(8, 6)
+	title.size = Vector2(224, 18)
+	title.text = "命令卡"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 12)
+	title.modulate = Color(0.72, 0.9, 1.0)
+	command_panel.add_child(title)
+
+	var buttons := [
+		["英雄 F1", "hero"], ["全选 C", "all_summons"],
+		["停止 X", "stop"], ["驻守 H", "hold"],
+		["攻击移动 G", "attack_move"], ["跟随 Y", "follow"],
+	]
+	for i in range(buttons.size()):
+		var button := Button.new()
+		button.position = Vector2(8 + (i % 2) * 112, 30 + (i / 2) * 48)
+		button.size = Vector2(104, 40)
+		button.text = buttons[i][0]
+		button.add_theme_font_size_override("font_size", 11)
+		button.focus_mode = Control.FOCUS_NONE
+		var command := String(buttons[i][1])
+		button.pressed.connect(func(): command_requested.emit(command))
+		command_panel.add_child(button)
+
 func _logical_viewport_size() -> Vector2:
 	var root_window := get_tree().root
 	if root_window != null:
@@ -944,6 +1037,7 @@ func _ready() -> void:
 	minimap = Minimap.new()
 	minimap.size = minimap_placeholder.size
 	minimap_placeholder.add_child(minimap)
+	minimap.world_clicked.connect(func(world_pos: Vector2): minimap_world_clicked.emit(world_pos))
 
 	# 丢弃区：内部类实例挂载到场景占位节点
 	ground_zone = GroundDropZone.new()
@@ -995,6 +1089,8 @@ func _ready() -> void:
 		trade_labels.append(lbl)
 
 	_build_attribute_panel()
+	_build_selection_panel()
+	_build_command_panel()
 	_build_objective_bar()
 	_build_settlement_panel()
 
@@ -1025,9 +1121,30 @@ func update_synergy(bonuses: Dictionary) -> void:
 		var old := message_label.text.split("  [")[0]
 		message_label.text = "%s  [联动: %s]" % [old, " ".join(parts)]
 
-func update_minimap(player_pos: Vector2, enemy_positions: Array, merchant_positions: Array, world_size: Vector2, roads: Array = [], camps: Array = [], boss_pos: Vector2 = Vector2.ZERO) -> void:
+func update_minimap(player_pos: Vector2, enemy_positions: Array, merchant_positions: Array, world_size: Vector2, roads: Array = [], camps: Array = [], boss_pos: Vector2 = Vector2.ZERO, camera_rect: Rect2 = Rect2(), fog_texture: Texture2D = null) -> void:
 	if minimap:
-		minimap.update_data(player_pos, enemy_positions, merchant_positions, world_size, roads, camps, boss_pos)
+		minimap.update_data(player_pos, enemy_positions, merchant_positions, world_size, roads, camps, boss_pos, camera_rect, fog_texture)
+
+func update_selection(snapshot: Dictionary) -> void:
+	if selection_label == null:
+		return
+	selection_label.text = "选择：%s" % String(snapshot.get("text", "未选中单位"))
+
+func update_order(snapshot: Dictionary) -> void:
+	if order_label == null:
+		return
+	order_label.text = "英雄订单：%s" % String(snapshot.get("hero_order", "待命"))
+
+func update_target(snapshot: Dictionary) -> void:
+	if target_label == null:
+		return
+	if snapshot.is_empty():
+		target_label.text = "目标：无"
+		return
+	target_label.text = "目标：%s  HP %.0f/%.0f  距离 %.0f" % [
+		String(snapshot.get("name", "敌人")), float(snapshot.get("hp", 0.0)),
+		float(snapshot.get("max_hp", 0.0)), float(snapshot.get("distance", 0.0))
+	]
 
 func update_merchant_count(count: int) -> void:
 	if stats_label == null:
@@ -1042,7 +1159,7 @@ func update_stats(stats_dict: Dictionary) -> void:
 	stats_label.text = "力%d 敏%d 智%d 体%d 运%d" % [t.get("str", 0), t.get("agi", 0), t.get("int", 0), t.get("vit", 0), t.get("luk", 0)]
 	var str_v := int(t.get("str", 0)); var agi_v := int(t.get("agi", 0)); var int_v := int(t.get("int", 0))
 	var vit_v := int(t.get("vit", 0)); var luk_v := int(t.get("luk", 0))
-	stats_label.tooltip_text = "力量 %d → 近战伤害 +%d%%\n敏捷 %d → 移速 +%d%% | 攻速 +%d%%\n智力 %d → 远程伤害 +%d%% | 回能 +%.1f/s\n生命 %d → 最大HP +%d\n幸运 %d → 掉落品质偏移 +%d%%" % [
+	stats_label.tooltip_text = "力量 %d → 物理/近战伤害 +%d%%\n敏捷 %d → 移速 +%d%% | 攻速 +%d%%\n智力 %d → 法术/远程伤害 +%d%% | 回能 +%.1f/s\n生命 %d → 最大HP +%d\n幸运 %d → 掉落品质偏移 +%d%%" % [
 		str_v, str_v * 3, agi_v, agi_v * 2, agi_v * 3,
 		int_v, int_v * 3, 5.0 + int_v * 0.5, vit_v, vit_v * 8, luk_v, luk_v * 2
 	]
@@ -1300,7 +1417,7 @@ func update_recovery_stone(charge: int, need: int) -> void:
 	if recovery_label == null:
 		return
 	if charge >= need:
-		recovery_label.text = "恢复石：就绪（点击装备槽 E1 使用）"
+		recovery_label.text = "恢复石：就绪（点击第一个装备槽使用）"
 		recovery_label.modulate = Color(0.4, 1.0, 0.4)
 	else:
 		recovery_label.text = "恢复石充能：%d/%d 击杀" % [charge, need]

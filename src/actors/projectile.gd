@@ -43,5 +43,5 @@ func _can_hit(body: Node2D) -> bool:
 		Faction.PLAYER:
 			return body.is_in_group("enemy")
 		Faction.ENEMY:
-			return body.is_in_group("player")
+			return body.is_in_group("player") or body.is_in_group("summon")
 	return false

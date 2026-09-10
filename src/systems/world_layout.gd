@@ -203,6 +203,17 @@ func get_respawn_position() -> Vector2:
 	return start_position
 
 
+func get_world_rect() -> Rect2:
+	return Rect2(Vector2.ZERO, map_size)
+
+
+func clamp_to_world(position: Vector2, margin: float = WALKABLE_MARGIN) -> Vector2:
+	return Vector2(
+		clampf(position.x, margin, map_size.x - margin),
+		clampf(position.y, margin, map_size.y - margin)
+	)
+
+
 func get_random_walkable_position(reference: Vector2, min_distance_from_reference: float = 0.0, avoid_landmarks: bool = true) -> Vector2:
 	for _attempt in range(96):
 		var pos := Vector2(

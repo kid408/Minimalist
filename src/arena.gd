@@ -9,6 +9,10 @@ const InventorySystem = preload("res://src/systems/inventory_system.gd")
 const SkillEngine = preload("res://src/systems/skill_engine.gd")
 const AuraSystem = preload("res://src/systems/aura_system.gd")
 const WorldLayout = preload("res://src/systems/world_layout.gd")
+const CommandSystem = preload("res://src/systems/command_system.gd")
+const AttackSystem = preload("res://src/systems/attack_system.gd")
+const CameraController = preload("res://src/systems/camera_controller.gd")
+const ThreatSystem = preload("res://src/systems/threat_system.gd")
 const InputBindings = preload("res://src/input_bindings.gd")
 
 const GameData = preload("res://src/data/game_data.gd")
@@ -31,6 +35,11 @@ var survival: SurvivalSystem
 var inventory: InventorySystem
 var skill_engine: SkillEngine   # 技能施放引擎（六大施法方式）
 var aura: AuraSystem            # 光环 / 常驻加成
+var command_system: CommandSystem
+var attack_system: AttackSystem
+var camera_controller: CameraController
+var threat: ThreatSystem
+var fog: Node
 
 var player: Player
 var hud: HUD
@@ -48,7 +57,6 @@ var gold := 0
 var kills := 0
 var recovery_stone_charge := 15  # 开局满充能
 var recovery_stone_need := 15
-var attack_timer: float = 0.0
 var mark_target: Enemy = null
 var last_message := ""
 var message_timer: float = 0.0
@@ -58,14 +66,7 @@ var _camera: Camera2D
 # 技能预览：按下技能键显示范围遮罩，松开才真正释放
 var _preview_index: int = -1
 var _preview_node: Node2D = null
-# Warcraft 式点击移动：右键设置移动目标，玩家走向该点后停下
-var _player_move_target: Vector2 = Vector2.ZERO
-var _player_moving: bool = false
-var _player_chase_target: Enemy = null
-var _player_path: PackedVector2Array = PackedVector2Array()
-var _player_path_index := 0
-var _player_path_goal := Vector2.ZERO
-var _player_path_repath_remaining := 0.0
+# 鼠标订单与路径状态由 CommandSystem 统一持有。
 var _preview_uses_mouse: bool = false
 var _preview_radius: float = 0.0
 var _preview_is_directional: bool = false
@@ -80,8 +81,6 @@ var _is_dragging: bool = false
 var _drag_start_screen: Vector2 = Vector2.ZERO
 var _drag_start_world: Vector2 = Vector2.ZERO
 var _selection_box: Rect2 = Rect2()
-var _left_was_pressed: bool = false
-var _right_was_pressed: bool = false
 # 框选遮罩绘制层（独立 CanvasLayer，避免被 HUD 层盖住）
 var selection_layer: CanvasLayer
 var selection_drawer: Node2D
@@ -188,6 +187,27 @@ func _ready() -> void:
 	hud.bind_arena(self)
 
 	_init_camera()
+	camera_controller = CameraController.new()
+	camera_controller.setup(self, _camera)
+	add_child(camera_controller)
+
+	threat = ThreatSystem.new()
+	threat.setup(self)
+	add_child(threat)
+	command_system = CommandSystem.new()
+	command_system.setup(self)
+	add_child(command_system)
+	attack_system = AttackSystem.new()
+	attack_system.setup(self)
+	add_child(attack_system)
+
+	fog = FogOfWar.new()
+	add_child(fog)
+	fog.init(player, FOG_RADIUS, FOG_CLEAR_RATIO, world_layout, Vector2(MAP_WIDTH, MAP_HEIGHT))
+	fog.z_index = 50
+
+	hud.minimap_world_clicked.connect(_on_minimap_world_clicked)
+	hud.command_requested.connect(_on_hud_command_requested)
 
 	_init_slots()
 	_connect_hud()
@@ -195,21 +215,13 @@ func _ready() -> void:
 	_init_central_boss()
 	_init_ancient_idols()
 
-	# 加入player组，方便掉落物寻找
-	# 战争迷雾
-	var fog := FogOfWar.new()
-	add_child(fog)
-	fog.init(player, FOG_RADIUS, FOG_CLEAR_RATIO)
-	fog.z_index = 50
-
-	player.add_to_group("player")
-
 
 func _process(delta: float) -> void:
 	# 活动计时由 world._process_respawns 负责递增（刷怪 / Boss 重生依赖它）
-	# 摄像机跟随
-	if _camera and is_instance_valid(_camera):
-		_camera.global_position = player.global_position
+	if camera_controller != null:
+		camera_controller.process_tick(delta, hud != null and hud.is_pointer_over_interactive_ui())
+	if threat != null:
+		threat.process_tick(delta)
 	_process_attack(delta)
 	_process_energy(delta)
 	_process_cooldowns(delta)
@@ -240,104 +252,18 @@ func _physics_process(delta: float) -> void:
 # 移动
 # ============================================================
 func _process_movement(delta: float) -> void:
-	# 键盘移动优先；右键移动使用布局路径，避免树林和岩石成为直线卡点。
-	var modal_open := hud != null and hud.has_modal()
-	var kdir := Vector2.ZERO
-	if not modal_open:
-		kdir = Vector2(
-			Input.get_axis("move_left", "move_right"),
-			Input.get_axis("move_up", "move_down")
-		)
-	else:
-		_player_moving = false
-		_player_chase_target = null
-		_clear_player_path()
-
-	var speed_mult := player.move_speed_mult()
-	if aura != null:
-		speed_mult *= 1.0 + aura.get_bonus("move_speed_pct")
-	var speed := player.base_move_speed * speed_mult
-	var desired_velocity := Vector2.ZERO
-	var is_moving := false
-
-	if kdir.length() > 0.01:
-		_player_moving = false
-		_player_chase_target = null
-		_clear_player_path()
-		desired_velocity = kdir.normalized() * speed
-		is_moving = true
-	elif _player_moving:
-		var move_goal := _next_player_move_goal(delta)
-		if move_goal == Vector2.ZERO:
-			_player_moving = false
-		else:
-			desired_velocity = player.global_position.direction_to(move_goal) * speed
-			is_moving = true
-
-	player.velocity = desired_velocity
-	player.move_and_slide()
-	player.position.x = clampf(player.position.x, 40, MAP_WIDTH - 40)
-	player.position.y = clampf(player.position.y, 40, MAP_HEIGHT - 40)
-
-	var sprite := player.get_node_or_null("BodySprite") as Sprite2D
-	if sprite == null:
+	# 英雄移动只由鼠标订单驱动；WASD 输入已完全移除。
+	if hud != null and hud.has_modal():
+		stop_player_movement()
 		return
-	if is_moving:
-		_bounce_phase += delta * 12.0
-		sprite.scale = GameData.get_player_visual_scale() + GameData.get_player_bounce_scale() * sin(_bounce_phase * 2.0)
-	else:
-		sprite.scale = sprite.scale.move_toward(GameData.get_player_visual_scale(), delta * 4.0)
-		_bounce_phase = 0.0
-
-func _set_player_move_target(target: Vector2, chase_target: Enemy = null) -> void:
-	_player_chase_target = chase_target
-	_player_move_target = world_layout.project_to_walkable(target) if world_layout != null else target
-	_player_moving = true
-	_rebuild_player_path()
-
-func _rebuild_player_path() -> void:
-	_player_path.clear()
-	_player_path_index = 0
-	_player_path_goal = _player_move_target
-	_player_path_repath_remaining = 0.30
-	if world_layout != null:
-		_player_path = world_layout.find_path(player.global_position, _player_move_target)
-	if _player_path.is_empty():
-		_player_path.append(_player_move_target)
-
-func _clear_player_path() -> void:
-	_player_path.clear()
-	_player_path_index = 0
-	_player_path_repath_remaining = 0.0
+	if command_system != null:
+		command_system.physics_tick(delta)
 
 func stop_player_movement() -> void:
-	_player_moving = false
-	_player_chase_target = null
-	_clear_player_path()
-	if player != null and is_instance_valid(player):
+	if command_system != null:
+		command_system.stop_hero()
+	elif player != null and is_instance_valid(player):
 		player.velocity = Vector2.ZERO
-
-func _next_player_move_goal(delta: float) -> Vector2:
-	if _player_chase_target != null:
-		if not is_instance_valid(_player_chase_target) or _player_chase_target.is_dead():
-			_player_chase_target = null
-			return Vector2.ZERO
-		var attack_stop_range := player.base_attack_range + 34.0
-		if player.global_position.distance_to(_player_chase_target.global_position) <= attack_stop_range:
-			return Vector2.ZERO
-		var chase_goal := world_layout.project_to_walkable(_player_chase_target.global_position) if world_layout != null else _player_chase_target.global_position
-		_player_path_repath_remaining -= delta
-		if _player_path_repath_remaining <= 0.0 or chase_goal.distance_to(_player_path_goal) > 64.0:
-			_player_move_target = chase_goal
-			_rebuild_player_path()
-
-	while _player_path_index < _player_path.size() and player.global_position.distance_to(_player_path[_player_path_index]) <= 20.0:
-		_player_path_index += 1
-	if _player_path_index < _player_path.size():
-		return _player_path[_player_path_index]
-	if player.global_position.distance_to(_player_move_target) <= 8.0:
-		return Vector2.ZERO
-	return _player_move_target
 
 # ============================================================
 # 能量回复
@@ -351,106 +277,125 @@ func _process_energy(delta: float) -> void:
 func _ensure_runtime_input_actions() -> void:
 	InputBindings.initialize()
 
-func _handle_left_release(world_pos: Vector2) -> void:
-	# 单体目标技能选取态：左键点击单位完成施放，不做框选
-	if skill_engine != null and skill_engine.is_targeting():
-		skill_engine.try_pick_target(world_pos)
+func request_skill_from_hud(index: int) -> void:
+	if index < 0 or index >= skill_slots.size() or skill_engine == null:
 		return
-	if _selection_box.size.length() >= 12.0:
-		_clear_selection()
-		for s in summons:
-			if is_instance_valid(s) and _selection_box.has_point(s.global_position):
-				_select(s)
-	else:
-		var s := _summon_at(world_pos)
-		if s:
-			_clear_selection()
-			_select(s)
+	_start_skill_preview(index)
+	if _preview_index != index:
+		return
+	skill_engine.begin_cast_from_hud(index)
+	if not skill_engine.is_targeting() and not skill_engine.is_channeling():
+		_cancel_skill_preview()
+
+func on_loadout_changed(_changed_slots: PackedInt32Array = PackedInt32Array()) -> void:
+	if skill_engine != null:
+		skill_engine.on_slots_changed()
+	_cancel_skill_preview()
+	if aura != null:
+		aura.mark_dirty()
+
+func _on_minimap_world_clicked(world_pos: Vector2) -> void:
+	if camera_controller != null:
+		camera_controller.jump_to(world_pos)
+
+func _on_hud_command_requested(command: String) -> void:
+	if command_system == null:
+		return
+	match command:
+		"hero":
+			command_system.select_hero()
+			if camera_controller != null:
+				camera_controller.follow_hero(false)
+		"all_summons": command_system.select_all_summons()
+		"stop": command_system.issue_stop()
+		"hold": command_system.issue_hold()
+		"attack_move": command_system.issue_attack_move(get_global_mouse_position())
+		"follow": command_system.issue_follow()
+
+func _handle_left_release(world_pos: Vector2, additive: bool = false) -> void:
+	# 目标技能与点地引导优先消耗左键，不进入单位选择。
+	if skill_engine != null and skill_engine.is_targeting():
+		var was_ground_targeting := skill_engine.is_ground_targeting()
+		skill_engine.try_pick_target(world_pos)
+		if was_ground_targeting and not skill_engine.is_ground_targeting():
+			_cancel_skill_preview()
+		return
+	if command_system != null:
+		command_system.finish_selection(world_pos, additive)
 
 func _handle_right_click(world_pos: Vector2) -> void:
-	# 选取态/引导态：右键先用于取消，不触发移动
+	# 选取态右键取消；引导态右键取消后继续执行本次鼠标订单。
 	if skill_engine != null:
 		if skill_engine.is_targeting():
 			skill_engine.cancel_targeting()
+			_cancel_skill_preview()
 			return
 		if skill_engine.is_channeling():
-			skill_engine.interrupt_channel("引导已取消。")
-			return
-	# Warcraft 式点击移动：点敌人进入追击，点地面取消焦点并走向可通行位置。
-	var enemy_at := _enemy_at(world_pos)
-	var walkable_target := world_layout.project_to_walkable(world_pos) if world_layout != null else world_pos
-	if enemy_at:
-		mark_target = enemy_at
-		_set_player_move_target(enemy_at.global_position, enemy_at)
-	else:
-		mark_target = null
-		_set_player_move_target(walkable_target)
-	# 同时指挥已选中的召唤物（攻击敌人 / 移动到该点）
-	for s in selected_summons:
-		if not is_instance_valid(s):
-			continue
-		if enemy_at:
-			s.command_attack_target = enemy_at
-			s.command_target_pos = Vector2.ZERO
-		else:
-			s.command_attack_target = null
-			s.command_target_pos = walkable_target
+			skill_engine.interrupt_channel("引导被移动命令打断。")
+	if command_system != null:
+		command_system.issue_context_order(world_pos)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not event.is_action_pressed("ui_cancel") or event.is_echo():
+	if hud != null and hud.has_modal():
 		return
-	if _cancel_current_action():
+	if event.is_action_pressed("ui_cancel") and not event.is_echo():
+		if _cancel_current_action():
+			get_viewport().set_input_as_handled()
+			return
+		if hud != null and hud.open_pause_menu():
+			get_viewport().set_input_as_handled()
+		return
+
+	if camera_controller != null and camera_controller.handle_input(event):
 		get_viewport().set_input_as_handled()
 		return
-	if hud != null and hud.open_pause_menu():
+
+	if event is InputEventMouseButton:
+		var mouse_button := event as InputEventMouseButton
+		var world_pos := get_global_mouse_position()
+		if mouse_button.button_index == MOUSE_BUTTON_LEFT:
+			if mouse_button.pressed:
+				if skill_engine == null or not skill_engine.is_targeting():
+					if command_system != null:
+						command_system.begin_selection(world_pos)
+			else:
+				_handle_left_release(world_pos, mouse_button.shift_pressed)
+			get_viewport().set_input_as_handled()
+			return
+		if mouse_button.button_index == MOUSE_BUTTON_RIGHT and mouse_button.pressed:
+			_handle_right_click(world_pos)
+			get_viewport().set_input_as_handled()
+			return
+
+	if event is InputEventMouseMotion:
+		if _is_dragging and command_system != null:
+			command_system.update_selection(get_global_mouse_position())
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.is_action_pressed("select_hero") and command_system != null:
+			command_system.select_hero()
+			if camera_controller != null:
+				camera_controller.follow_hero(false)
+		elif event.is_action_pressed("select_all_summons") and command_system != null:
+			command_system.select_all_summons()
+		elif event.is_action_pressed("order_stop") and command_system != null:
+			command_system.issue_stop()
+		elif event.is_action_pressed("order_hold") and command_system != null:
+			command_system.issue_hold()
+		elif event.is_action_pressed("order_attack_move") and command_system != null:
+			command_system.issue_attack_move(get_global_mouse_position())
+		elif event.is_action_pressed("order_follow") and command_system != null:
+			command_system.issue_follow()
+		else:
+			return
 		get_viewport().set_input_as_handled()
 
 func _process_input() -> void:
 	if hud != null and hud.has_modal():
 		return
 
-	var pointer_over_ui := hud != null and hud.is_pointer_over_interactive_ui()
-	if not pointer_over_ui:
-		# 鼠标右键：每次按下只下达一次命令。
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-			if not _right_was_pressed:
-				_handle_right_click(get_global_mouse_position())
-				_right_was_pressed = true
-		else:
-			_right_was_pressed = false
-
-		# 左键：框选/点选。拖动期间实时更新选框。
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			var mouse_world := get_global_mouse_position()
-			if not _left_was_pressed:
-				_drag_start_world = mouse_world
-				_drag_start_screen = get_viewport().get_mouse_position()
-				_selection_box = Rect2(_drag_start_world, Vector2.ZERO)
-				_left_was_pressed = true
-				_is_dragging = true
-			else:
-				_selection_box = Rect2(_drag_start_world, mouse_world - _drag_start_world).abs()
-			if selection_drawer != null:
-				selection_drawer.queue_redraw()
-		else:
-			if _left_was_pressed:
-				var release_world := get_global_mouse_position()
-				_selection_box = Rect2(_drag_start_world, release_world - _drag_start_world).abs()
-				_handle_left_release(release_world)
-			_left_was_pressed = false
-			_is_dragging = false
-			_selection_box = Rect2()
-			if selection_drawer != null:
-				selection_drawer.queue_redraw()
-	else:
-		_right_was_pressed = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
-		if _left_was_pressed:
-			_left_was_pressed = false
-			_is_dragging = false
-			_selection_box = Rect2()
-			if selection_drawer != null:
-				selection_drawer.queue_redraw()
-
+	# 鼠标点击已由 _unhandled_input 统一处理；这里仅轮询技能与交互快捷键。
 	# 技能按键：按下进入预览（显示范围遮罩），松开才真正释放
 	for i in range(skill_actions.size()):
 		if Input.is_action_just_pressed(skill_actions[i]):
@@ -477,6 +422,7 @@ func _process_input() -> void:
 func _cancel_current_action() -> bool:
 	if skill_engine != null and skill_engine.is_targeting():
 		skill_engine.cancel_targeting()
+		_cancel_skill_preview()
 		return true
 	if skill_engine != null and skill_engine.is_channeling():
 		skill_engine.interrupt_channel("引导已取消。")
@@ -485,14 +431,16 @@ func _cancel_current_action() -> bool:
 		_cancel_skill_preview()
 		return true
 	if _is_dragging:
-		_left_was_pressed = false
 		_is_dragging = false
 		_selection_box = Rect2()
 		if selection_drawer != null:
 			selection_drawer.queue_redraw()
 		return true
-	if not selected_summons.is_empty():
-		_clear_selection()
+	if command_system != null and command_system.has_inspected_target():
+		command_system.clear_inspected_target()
+		return true
+	if command_system != null and not command_system.selected_summons.is_empty():
+		command_system.clear_selection()
 		return true
 	return false
 
@@ -500,7 +448,13 @@ func _cancel_current_action() -> bool:
 # 技能预览：按下显示遮罩，松开释放
 # ============================================================
 func _start_skill_preview(index: int) -> void:
-	# 已有其它技能预览中时，先取消旧的
+	# 新施法命令会先取消旧目标选取或引导。
+	if skill_engine != null and skill_engine.is_targeting():
+		skill_engine.cancel_targeting("")
+		_cancel_skill_preview()
+	if skill_engine != null and skill_engine.is_channeling():
+		skill_engine.interrupt_channel("引导被新施法打断。")
+	# 已有其它技能预览中时，先取消旧的。
 	if _preview_index >= 0 and _preview_index != index:
 		_cancel_skill_preview()
 	var host: Dictionary = skill_slots[index] if index < skill_slots.size() else {}
@@ -547,6 +501,9 @@ func _update_skill_preview() -> void:
 
 func _release_skill(index: int) -> void:
 	_cast_skill(index)
+	# 圆形引导技能松键后进入点地确认，保留范围预览直到左键确认或取消。
+	if skill_engine != null and skill_engine.is_ground_targeting():
+		return
 	_cancel_skill_preview()
 
 func _cancel_skill_preview() -> void:
@@ -604,10 +561,17 @@ func _process_enemy_attacks(delta: float) -> void: world._process_enemy_attacks(
 func _process_enemy_detection() -> void: world._process_enemy_detection()
 func _process_respawns(delta: float) -> void: world._process_respawns(delta)
 func _handle_player_death() -> void:
+	if skill_engine != null:
+		skill_engine.cancel_targeting("")
+		skill_engine.interrupt_channel("施法者阵亡，引导中断。")
+		skill_engine.clear_all_toggles()
+	_cancel_skill_preview()
+	stop_player_movement()
 	# 被动：重生（优先于常规死亡结算，无金币惩罚）
 	var pc := get_passive_combat()
 	if pc.get("reincarnate", 0) > 0 and player.reincarnate_charges > 0:
-		player.reincarnate_charges -= 1
+		_reincarnate_used += 1
+		player.reincarnate_charges = maxi(0, int(pc.get("reincarnate", 0)) - _reincarnate_used)
 		player.hp = player.max_hp_calc() * 0.6
 		player.shield = 0.0
 		player_invuln = 3.0
@@ -625,9 +589,9 @@ func _handle_player_death() -> void:
 		cooldowns[k] = 5.0
 	player.hp = player.max_hp_calc()
 	player.position = world_layout.get_respawn_position() if world_layout != null else START_POSITION
-	_player_moving = false
-	_player_chase_target = null
-	_clear_player_path()
+	stop_player_movement()
+	if camera_controller != null:
+		camera_controller.follow_hero(false)
 	player_invuln = 3.0
 	_is_dead = false
 	hud.set_message("你阵亡了！损失 %d 金币，复活继续（死亡 %d / %d）" % [penalty, survival.deaths, survival.DEATH_LIMIT])
@@ -730,6 +694,7 @@ func _upgrade_skill_from_pickup(area: String, idx: int) -> void:
 		hud.flash_skill_slot(idx, "Lv.%d" % lvl)
 	else:
 		hud.set_message("增益【%s】升级 Lv.%d" % [s.get("name", "技能"), lvl])
+	on_loadout_changed(PackedInt32Array([idx]))
 
 # ============================================================
 # 技能冷却
@@ -813,9 +778,9 @@ func _process_drop_proximity(_delta: float) -> void:
 # ============================================================
 func _find_nearest_enemy() -> Enemy:
 	var best: Enemy = null
-	var best_dist := 99999.0
+	var best_dist := INF
 	for enemy in enemies_root.get_children():
-		if enemy is Enemy and not enemy.is_dead():
+		if enemy is Enemy and not enemy.is_dead() and (fog == null or fog.is_position_visible(enemy.global_position)):
 			var dist := player.global_position.distance_squared_to(enemy.global_position)
 			if dist < best_dist:
 				best_dist = dist
@@ -891,10 +856,20 @@ func _get_nearest_enemies_in_dir(dir: Vector2, count: int, max_dist: float) -> A
 		return player.global_position.distance_squared_to(a.global_position) < player.global_position.distance_squared_to(b.global_position))
 	return candidates.slice(0, count)
 
-func _spawn_persistent_damage(pos: Vector2, radius: float, damage_per_tick: float, duration: float, interval: float) -> void:
+func _spawn_persistent_damage(pos: Vector2, radius: float, damage_per_tick: float, duration: float, interval: float, effects: Dictionary = {}, school: String = "fire") -> void:
+	if duration <= 0.0 or interval <= 0.0:
+		return
 	var zone := Node2D.new()
 	zone.position = pos
+	zone.z_index = 3
 	add_child(zone)
+
+	var color := Color(1.0, 0.25, 0.1, 0.25)
+	match school:
+		"ice": color = Color(0.36, 0.78, 1.0, 0.28)
+		"lightning": color = Color(0.72, 0.58, 1.0, 0.25)
+		"shadow": color = Color(0.62, 0.30, 0.86, 0.25)
+		"nature": color = Color(0.30, 0.90, 0.55, 0.25)
 
 	var sprite := Sprite2D.new()
 	var tex := GradientTexture2D.new()
@@ -902,32 +877,36 @@ func _spawn_persistent_damage(pos: Vector2, radius: float, damage_per_tick: floa
 	tex.height = int(radius * 2)
 	tex.fill = GradientTexture2D.FILL_RADIAL
 	var grad := Gradient.new()
-	grad.colors = [Color(1, 0.25, 0.1, 0.25), Color(1, 0.25, 0.1, 0.0)]
+	grad.colors = [color, Color(color.r, color.g, color.b, 0.0)]
 	tex.gradient = grad
 	sprite.texture = tex
 	zone.add_child(sprite)
 
-	var tick_count := int(duration / interval)
-	for i in range(tick_count):
-		var tw := create_tween()
-		tw.tween_interval(interval)
-		var d := damage_per_tick
-		var r := radius
-		tw.tween_callback(func():
-			if not is_instance_valid(zone):
-				return
-			for enemy in enemies_root.get_children():
-				if enemy is Enemy and not enemy.is_dead():
-					if enemy.global_position.distance_to(zone.global_position) < r:
-						enemy.take_damage(d, Vector2.ZERO, 0)
-						if enemy.is_dead():
-							_on_enemy_killed(enemy)
-		)
+	var tick_count := maxi(1, ceili(duration / interval))
+	var d := damage_per_tick
+	var r := radius
+	var fx := effects.duplicate(true)
+	var tick_tween := create_tween()
+	for _tick in range(tick_count):
+		tick_tween.tween_interval(interval)
+		tick_tween.tween_callback(func(): _damage_persistent_zone(zone, r, d, fx))
 
 	var fade := create_tween()
 	fade.tween_interval(duration)
 	fade.tween_property(zone, "modulate:a", 0.0, 0.3)
 	fade.tween_callback(zone.queue_free)
+
+func _damage_persistent_zone(zone: Node2D, radius: float, damage: float, effects: Dictionary) -> void:
+	if not is_instance_valid(zone):
+		return
+	for enemy in enemies_root.get_children():
+		if enemy is Enemy and not enemy.is_dead() and enemy.global_position.distance_to(zone.global_position) < radius:
+			if combat != null:
+				combat._deal_to_enemy(enemy as Enemy, damage, effects, zone.global_position)
+			else:
+				enemy.take_damage(damage, Vector2.ZERO, 0.0)
+				if enemy.is_dead():
+					_on_enemy_killed(enemy as Enemy)
 
 func _get_cd_dict() -> Dictionary:
 	var result := {}
@@ -938,6 +917,7 @@ func _get_cd_dict() -> Dictionary:
 # 被动战斗键缓存（闪避/暴击/分裂/重生），由带 passive 标签的已装备技能聚合
 var _passive_combat: Dictionary = {}
 var _passive_dirty := true
+var _reincarnate_used := 0
 
 func mark_passives_dirty() -> void:
 	_passive_dirty = true
@@ -961,7 +941,8 @@ func _recompute_passives() -> void:
 				if typeof(a) == TYPE_DICTIONARY and not String(a.get("id","")).is_empty():
 					_merge_passive(pc, a.get("effects", {}))
 	if player != null and is_instance_valid(player):
-		player.reincarnate_charges = int(pc["reincarnate"])
+		var reincarnate_max := int(pc["reincarnate"])
+		player.reincarnate_charges = maxi(0, reincarnate_max - _reincarnate_used)
 	_passive_combat = pc
 	_passive_dirty = false
 
@@ -974,18 +955,6 @@ func _merge_passive(pc: Dictionary, fx: Dictionary) -> void:
 
 func _get_skill_full_datas() -> Array:
 	return skill_slots
-
-func _show_attack_line(from: Vector2, to: Vector2) -> void:
-	var line := Line2D.new()
-	line.width = 2.5
-	line.default_color = Color(1.0, 0.85, 0.3, 0.8)
-	line.add_point(from - global_position)
-	line.add_point(to - global_position)
-	add_child(line)
-
-	var tw := create_tween()
-	tw.tween_property(line, "modulate:a", 0.0, 0.15)
-	tw.tween_callback(line.queue_free)
 
 func _spawn_damage_number(pos: Vector2, dmg: float, is_crit: bool = false) -> void:
 	var label := Label.new()
@@ -1005,15 +974,3 @@ func _spawn_damage_number(pos: Vector2, dmg: float, is_crit: bool = false) -> vo
 	tw.tween_property(node, "position:y", node.position.y - 45, 0.7).set_ease(Tween.EASE_OUT)
 	tw.tween_property(node, "modulate:a", 0.0, 0.55).set_delay(0.2)
 	tw.tween_callback(node.queue_free).set_delay(0.75)
-
-func _hitstop(duration: float) -> void:
-	Engine.time_scale = 0.2
-	var timer := Timer.new()
-	timer.one_shot = true
-	timer.wait_time = duration * 0.2
-	timer.timeout.connect(func():
-		Engine.time_scale = 1.0
-		timer.queue_free()
-	)
-	add_child(timer)
-	timer.start()

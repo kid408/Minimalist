@@ -66,7 +66,7 @@ func _refresh_menu_hint() -> void:
 	var skill_keys := PackedStringArray()
 	for i in range(6):
 		skill_keys.append(InputBindings.get_action_key_text("skill_%d" % (i + 1)))
-	hint_label.text = "WASD移动 · 技能[%s]\n交互：%s · 拾取：%s · 鼠标右键移动/标记敌人\n掉落物靠近自动显示名字 · 仓库拖拽到技能/装备槽 · 地图上自己找商人" % [
+	hint_label.text = "鼠标右键移动/攻击 · 技能[%s]\n交互：%s · 拾取：%s · F1英雄 · C全选召唤物 · X停止 · Y跟随\n掉落物靠近自动显示名字 · 仓库拖拽到技能/装备槽 · 地图上自己找商人" % [
 		"/".join(skill_keys),
 		InputBindings.get_action_key_text("interact"),
 		InputBindings.get_action_key_text("pickup"),
@@ -105,7 +105,7 @@ func _build_settings_windows() -> void:
 	_keybind_panel.visible = false
 	add_child(_keybind_panel)
 	_add_label(_keybind_panel, "按键设置", Vector2(26, 18), Vector2(688, 36), 28, Color(0.70, 0.88, 1.0), HORIZONTAL_ALIGNMENT_CENTER)
-	_add_label(_keybind_panel, "点击右侧按键后按下新键。Esc 取消当前捕获；W/A/S/D、J、T 与 Esc 为保留键。", Vector2(30, 58), Vector2(680, 28), 13, Color(0.70, 0.77, 0.86), HORIZONTAL_ALIGNMENT_CENTER)
+	_add_label(_keybind_panel, "点击右侧按键后按下新键。Esc 取消当前捕获；J、T、F1、C、X、H、G、Y 与 Esc 为保留键。", Vector2(30, 58), Vector2(680, 28), 13, Color(0.70, 0.77, 0.86), HORIZONTAL_ALIGNMENT_CENTER)
 
 	_keybind_status = _add_label(_keybind_panel, "交互与拾取默认同为 Space：交互优先，未命中交互时拾取。", Vector2(30, 94), Vector2(680, 24), 13, Color(0.62, 0.90, 0.72), HORIZONTAL_ALIGNMENT_CENTER)
 	var definitions := InputBindings.get_rebindable_actions()

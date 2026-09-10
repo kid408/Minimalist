@@ -5,10 +5,6 @@ const CONFIG_SECTION := "keybindings"
 const DEFAULT_CONFIG_PATH := "user://input_bindings.cfg"
 
 const DEFAULT_ACTIONS := {
-	"move_up": KEY_W,
-	"move_down": KEY_S,
-	"move_left": KEY_A,
-	"move_right": KEY_D,
 	"skill_1": KEY_1,
 	"skill_2": KEY_2,
 	"skill_3": KEY_3,
@@ -19,8 +15,16 @@ const DEFAULT_ACTIONS := {
 	"pickup": KEY_SPACE,
 	"summon_spawn": KEY_J,
 	"attributes": KEY_T,
+	"select_hero": KEY_F1,
+	"select_all_summons": KEY_C,
+	"order_stop": KEY_X,
+	"order_hold": KEY_H,
+	"order_attack_move": KEY_G,
+	"order_follow": KEY_Y,
 	"ui_cancel": KEY_ESCAPE,
 }
+
+const REMOVED_ACTIONS := ["move_up", "move_down", "move_left", "move_right"]
 
 const REBINDABLE_ACTIONS := [
 	{"action": "skill_1", "label": "技能 1"},
@@ -33,12 +37,15 @@ const REBINDABLE_ACTIONS := [
 	{"action": "pickup", "label": "拾取"},
 ]
 
-const RESERVED_KEYS := [KEY_W, KEY_A, KEY_S, KEY_D, KEY_J, KEY_T]
+const RESERVED_KEYS := [KEY_J, KEY_T, KEY_F1, KEY_C, KEY_X, KEY_H, KEY_G, KEY_Y]
 
 static var _config_path := DEFAULT_CONFIG_PATH
 
 
 static func initialize() -> void:
+	for removed_action in REMOVED_ACTIONS:
+		if InputMap.has_action(removed_action):
+			InputMap.erase_action(removed_action)
 	for action_name in DEFAULT_ACTIONS:
 		_ensure_action_exists(action_name)
 
@@ -50,7 +57,7 @@ static func initialize() -> void:
 			saved_event = _event_from_data(config.get_value(CONFIG_SECTION, action_name))
 		if saved_event != null:
 			_replace_action_event(action_name, saved_event)
-		elif InputMap.action_get_events(action_name).is_empty():
+		elif not _is_rebindable(action_name) or InputMap.action_get_events(action_name).is_empty():
 			_replace_action_event(action_name, _make_key_event(int(DEFAULT_ACTIONS[action_name])))
 
 

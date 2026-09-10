@@ -7,6 +7,8 @@ const ENERGY_REGEN_BASE := 5.0
 
 func _ready() -> void:
 	add_to_group("player")
+	add_to_group("vision_source")
+	set_meta("vision_radius", vision_radius)
 	collision_layer = 1
 	# 英雄仍可被投射物与交互区检测，但实体移动只受世界阻挡物限制。
 	collision_mask = 8
@@ -50,6 +52,11 @@ var base_move_speed: float = 300.0
 var base_attack_damage: float = 24.0
 var base_attack_interval: float = 0.46
 var base_attack_range: float = 72.0
+var attack_point: float = 0.16
+var backswing: float = 0.14
+var acquisition_range: float = 280.0
+var vision_radius: float = 760.0
+var selected := false
 
 # 等级 / 经验 / 技能点
 var xp: float = 0.0
@@ -115,7 +122,8 @@ func reset_allocated() -> int:
 
 # 衍生属性
 func melee_damage_mult() -> float: return 1.0 + total_str() * 0.03
-func ranged_damage_mult() -> float: return 1.0 + total_int() * 0.03
+func spell_damage_mult() -> float: return 1.0 + total_int() * 0.03
+func ranged_damage_mult() -> float: return spell_damage_mult()
 func attack_speed_mult() -> float: return (1.0 + total_agi() * 0.03) * temp_buff_mult("attack_speed_pct")
 func move_speed_mult() -> float: return (1.0 + total_agi() * 0.02) * temp_buff_mult("move_speed_pct")
 func energy_regen_rate() -> float:
@@ -192,6 +200,11 @@ func init_from_hero(hero_data: Dictionary) -> void:
 	base_attack_damage = hero_data.get("attack_damage", 24.0)
 	base_attack_interval = hero_data.get("attack_interval", 0.46)
 	base_attack_range = hero_data.get("attack_range", 72.0)
+	attack_point = hero_data.get("attack_point", 0.16)
+	backswing = hero_data.get("backswing", 0.14)
+	acquisition_range = hero_data.get("acquisition_range", 280.0)
+	vision_radius = hero_data.get("vision_radius", 760.0)
+	set_meta("vision_radius", vision_radius)
 
 func refresh_max_hp() -> void:
 	var new_max := max_hp_calc()
@@ -248,6 +261,12 @@ func consume_energy(amount: float) -> bool:
 func is_alive() -> bool:
 	return hp > 0.0
 
+func set_selected(value: bool) -> void:
+	if selected == value:
+		return
+	selected = value
+	queue_redraw()
+
 func add_shield(amount: float, dur: float) -> void:
 	shield = maxf(shield, amount)
 	shield_timer = maxf(shield_timer, dur)
@@ -274,6 +293,10 @@ func add_reflect(ratio: float, dur: float, school: String = "physical") -> void:
 	reflect_ratio = maxf(reflect_ratio, ratio)
 	reflect_remaining = maxf(reflect_remaining, dur)
 	reflect_school = school
+
+func _draw() -> void:
+	if selected:
+		draw_arc(Vector2.ZERO, 25.0, 0.0, TAU, 36, Color(0.34, 0.95, 1.0, 0.95), 2.4, true)
 
 func _physics_process(delta: float) -> void:
 	# 过载核心计时

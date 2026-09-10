@@ -19,67 +19,55 @@ var arena: Arena
 # 自动普攻
 # ============================================================
 func _process_attack(delta: float) -> void:
-	arena.attack_timer -= delta
-	if arena.attack_timer > 0:
+	if arena.attack_system != null:
+		arena.attack_system.process_tick(delta)
+
+
+func resolve_basic_attack(attacker: Node2D, target: Enemy, damage: float) -> void:
+	if attacker == null or target == null or not is_instance_valid(attacker) or not is_instance_valid(target):
 		return
+	_show_attack_line(attacker.global_position, target.global_position)
+	_deal_to_enemy(target, damage, {"knockback": 40.0}, attacker.global_position, attacker)
+	_spawn_hit_effect(target.global_position, Color(1.0, 0.84, 0.35, 0.9))
 
-	var target: Enemy = arena.mark_target
-	if target == null or not is_instance_valid(target) or target.is_dead():
-		target = arena._find_nearest_enemy()
-		arena.mark_target = null
 
-	if target == null:
+func resolve_summon_attack(attacker: Summon, target: Enemy, damage: float) -> void:
+	if attacker == null or target == null or not is_instance_valid(attacker) or not is_instance_valid(target):
 		return
+	_deal_to_enemy(target, damage, {"knockback": 30.0}, attacker.global_position, attacker, false)
+	_spawn_hit_effect(target.global_position, Color(0.35, 1.0, 0.58, 0.8))
 
-	var dist := arena.player.global_position.distance_to(target.global_position)
-	if dist > arena.player.base_attack_range + 40:
-		# 集火目标已严重脱离（超出 600px 追击距离）→ 解除锁定，下一帧回退自动索敌
-		if arena.mark_target != null and dist > 600.0:
-			arena.mark_target = null
-		return
-	if arena.world_layout != null and arena.world_layout.is_segment_blocked(arena.player.global_position, target.global_position, 2.0):
-		return
 
-	var aspd := arena.player.attack_speed_mult()
-	if arena.aura != null:
-		aspd *= 1.0 + arena.aura.get_bonus("attack_speed_pct")
-	var interval := arena.player.base_attack_interval / maxf(0.05, aspd)
-	arena.attack_timer = interval
+func _show_attack_line(from: Vector2, to: Vector2) -> void:
+	var line := Line2D.new()
+	line.width = 2.4
+	line.default_color = Color(1.0, 0.85, 0.3, 0.78)
+	line.add_point(from)
+	line.add_point(to)
+	arena.add_child(line)
+	var tween := create_tween()
+	tween.tween_property(line, "modulate:a", 0.0, 0.12)
+	tween.tween_callback(line.queue_free)
 
-	var dmg := arena.player.base_attack_damage
-	if arena.aura != null:
-		dmg *= 1.0 + arena.aura.get_bonus("damage_pct")
-	dmg *= arena.player.temp_buff_mult("damage_pct")
 
-	# 被动：致命一击
-	var pc := arena.get_passive_combat()
-	if pc.get("crit_chance", 0.0) > 0.0 and randf() < float(pc["crit_chance"]):
-		dmg *= float(pc.get("crit_mult", 2.0))
-
-	# P0-1: 普攻弹道线
-	arena._show_attack_line(arena.player.global_position, target.global_position)
-
-	# P0-3: Hitstop
-	arena._hitstop(0.03)
-
-	target.take_damage(
-		dmg,
-		arena.player.global_position.direction_to(target.global_position),
-		40.0
-	)
-
-	# P0-2: 伤害数字
-	arena._spawn_damage_number(target.global_position, dmg, false)
-
-	if arena.aura != null:
-		arena.aura.on_damage_dealt(dmg)
-
-	# 被动：分裂溅射
-	if pc.get("cleave", 0.0) > 0.0:
-		_apply_cleave(target, dmg * float(pc["cleave"]), "physical", target)
-
-	if target.is_dead():
-		arena.world._on_enemy_killed(target)
+func _spawn_hit_effect(pos: Vector2, color: Color) -> void:
+	var effect := Node2D.new()
+	effect.global_position = pos
+	effect.z_index = 15
+	var ring := Line2D.new()
+	ring.width = 2.0
+	ring.default_color = color
+	var points := PackedVector2Array()
+	for i in range(13):
+		var angle := TAU * float(i) / 12.0
+		points.append(Vector2(cos(angle), sin(angle)) * 10.0)
+	ring.points = points
+	effect.add_child(ring)
+	arena.add_child(effect)
+	var tween := create_tween()
+	tween.tween_property(effect, "scale", Vector2(1.8, 1.8), 0.16)
+	tween.parallel().tween_property(effect, "modulate:a", 0.0, 0.16)
+	tween.tween_callback(effect.queue_free)
 
 # ============================================================
 # 技能施放
@@ -113,6 +101,7 @@ func _compute_preview(index: int) -> Dictionary:
 	var mode := String(resolved.get("cast_mode", "instant"))
 	var shape := String(resolved.get("shape", "none"))
 	var side := String(resolved.get("target_side", "enemy"))
+	var school := String(resolved.get("school", "physical"))
 	var radius := float(resolved.get("radius", 0.0))
 	var color := Color(0.3, 0.8, 1.0, 0.45)
 	var uses_mouse := false
@@ -128,7 +117,7 @@ func _compute_preview(index: int) -> Dictionary:
 			uses_mouse = true
 			if radius <= 0.0:
 				radius = 130.0
-			color = Color(1.0, 0.5, 0.2, 0.45)
+			color = Color(0.38, 0.78, 1.0, 0.45) if school == "ice" else Color(1.0, 0.5, 0.2, 0.45)
 		"line", "projectile":
 			uses_mouse = true
 			directional = true
@@ -154,7 +143,7 @@ func _compute_preview(index: int) -> Dictionary:
 			uses_mouse = false
 			color = Color(1.0, 0.6, 0.2, 0.35)
 		"channel":
-			color = Color(0.6, 0.4, 1.0, 0.45)
+			color = Color(0.48, 0.82, 1.0, 0.48) if school == "ice" else Color(0.6, 0.4, 1.0, 0.45)
 
 	return {
 		"valid": true,
@@ -282,9 +271,14 @@ func _skill_aoe_self(dmg: float, skill: Dictionary) -> void:
 func _skill_aoe_ground(pos: Vector2, dmg: float, skill: Dictionary) -> void:
 	var effects: Dictionary = skill.get("effects", {})
 	var radius := float(skill.get("radius", 130.0))
-	if arena._get_synergy_bonuses().get("aoe_ground", 0) >= 2:
+	if not bool(skill.get("radius_locked", false)) and arena._get_synergy_bonuses().get("aoe_ground", 0) >= 2:
 		radius *= 1.2
-	_show_aoe_indicator(pos, radius, Color(1.0, 0.5, 0.2, 0.35))
+	var indicator_color := Color(1.0, 0.5, 0.2, 0.35)
+	match String(skill.get("school", "physical")):
+		"ice": indicator_color = Color(0.38, 0.78, 1.0, 0.38)
+		"lightning": indicator_color = Color(0.75, 0.62, 1.0, 0.35)
+		"shadow": indicator_color = Color(0.68, 0.34, 0.90, 0.35)
+	_show_aoe_indicator(pos, radius, indicator_color)
 
 	var is_ground := bool(skill.get("ground", false)) or String(skill.get("subtype", "")) == "ground"
 
@@ -401,52 +395,54 @@ func _resolve_player_projectile_hit(body: Node2D, proj: Projectile) -> void:
 	if body is Enemy:
 		_deal_to_enemy(body as Enemy, proj.damage, proj.effects, arena.player.global_position)
 
-# 统一的敌人伤害结算：伤害 + 击退 + 目标侧控制/减益原语 + 击杀回调 + 光环吸血
-func _deal_to_enemy(enemy: Enemy, dmg: float, effects: Dictionary, from_pos: Vector2) -> void:
+# 统一的敌人伤害结算：伤害 + 击退 + 控制/减益 + 仇恨 + 击杀回调。
+func _deal_to_enemy(enemy: Enemy, dmg: float, effects: Dictionary, from_pos: Vector2, source: Node2D = null, allow_player_crit: bool = true) -> void:
 	if enemy == null or not is_instance_valid(enemy) or enemy.is_dead():
 		return
+	var actual_source := source if source != null and is_instance_valid(source) else arena.player
 	var dir := (enemy.global_position - from_pos).normalized()
-	# 被动：致命一击
 	var pc := arena.get_passive_combat()
 	var final_dmg := dmg
-	if pc.get("crit_chance", 0.0) > 0.0 and randf() < float(pc["crit_chance"]):
+	if allow_player_crit and pc.get("crit_chance", 0.0) > 0.0 and randf() < float(pc["crit_chance"]):
 		final_dmg *= float(pc.get("crit_mult", 2.0))
 	enemy.take_damage(final_dmg, dir, float(effects.get("knockback", 0.0)))
 	if final_dmg > 0.0:
 		arena._spawn_damage_number(enemy.global_position, final_dmg)
+		if arena.threat != null:
+			arena.threat.report_damage(enemy, actual_source, final_dmg)
 	if arena.aura != null:
 		arena.aura.on_damage_dealt(final_dmg)
-	# 目标侧控制/减益原语统一交给 SkillEffects 执行（数据驱动，新增原语零代码）
+	# 目标侧控制/减益原语统一交给 SkillEffects 执行。
 	var ctx := {"arena": arena, "caster": arena.player, "dmg": final_dmg, "from_pos": from_pos, "skill": null, "effects": effects}
 	SkillEffects.apply_to_target(enemy, effects, ctx)
-	# 被动：分裂溅射
-	if pc.get("cleave", 0.0) > 0.0:
-		_apply_cleave(enemy, final_dmg * float(pc["cleave"]), String(effects.get("school", "physical")), enemy)
+	if allow_player_crit and pc.get("cleave", 0.0) > 0.0:
+		_apply_cleave(enemy, final_dmg * float(pc["cleave"]), enemy)
 	if enemy.is_dead():
 		arena.world._on_enemy_killed(enemy)
 
 
-# 被动：分裂 —— 命中后对周围敌人造成溅射伤害
-func _apply_cleave(src: Enemy, dmg: float, school: String, exclude: Enemy) -> void:
+# 被动：分裂 —— 走统一结算，避免绕过仇恨、飘字和击杀回调。
+func _apply_cleave(src: Enemy, dmg: float, exclude: Enemy) -> void:
 	if dmg <= 0.0 or arena.enemies_root == null:
 		return
 	for e in arena.enemies_root.get_children():
 		if e is Enemy and e != exclude and not (e as Enemy).is_dead():
 			var en := e as Enemy
 			if en.global_position.distance_to(src.global_position) <= 70.0:
-				en.take_damage(dmg, (en.global_position - src.global_position).normalized(), 0.0)
+				_deal_to_enemy(en, dmg, {}, src.global_position, arena.player, false)
 
 
 # ground 类技能：生成持续伤害区域（dps 由 effects.ground_dps_mult 缩放）
 func _spawn_ground_effect(pos: Vector2, radius: float, dmg: float, skill: Dictionary) -> void:
 	var effects: Dictionary = skill.get("effects", {})
 	var secs := float(effects.get("ground_secs", float(skill.get("duration", 3.0))))
+	var interval := maxf(0.1, float(skill.get("tick_interval", 0.6)))
 	var dps: float
 	if effects.has("ground_dps_mult"):
 		dps = dmg * float(effects.get("ground_dps_mult", 1.0))
 	else:
 		dps = dmg
-	arena._spawn_persistent_damage(pos, radius, dps, secs, 0.6)
+	arena._spawn_persistent_damage(pos, radius, dps, secs, interval, effects, String(skill.get("school", "fire")))
 
 # 治疗型技能：范围内治疗自己与召唤物
 # 治疗/护盾数值由 SkillEngine 在结算后统一交给 SkillEffects 施加
@@ -555,21 +551,20 @@ func _summon_at(world_pos: Vector2) -> Summon:
 
 func _enemy_at(world_pos: Vector2) -> Enemy:
 	for e in arena.enemies_root.get_children():
-		if e is Enemy and not e.is_dead() and e.global_position.distance_to(world_pos) < 40.0:
+		if e is Enemy and not e.is_dead() and (arena.fog == null or arena.fog.is_position_visible(e.global_position)) and e.global_position.distance_to(world_pos) < 40.0:
 			return e
 	return null
 
 func _select(s: Summon) -> void:
-	if arena.selected_summons.has(s):
+	if arena.command_system == null or s == null or not is_instance_valid(s):
 		return
-	s.set_selected(true)
-	arena.selected_summons.append(s)
+	if not arena.command_system.selected_summons.has(s):
+		s.set_selected(true)
+		arena.command_system.selected_summons.append(s)
 
 func _clear_selection() -> void:
-	for s in arena.selected_summons:
-		if is_instance_valid(s):
-			s.set_selected(false)
-	arena.selected_summons.clear()
+	if arena.command_system != null:
+		arena.command_system.clear_selection()
 
 func _spawn_summon() -> void:
 	if arena.summons.size() >= arena.summon_limit:
@@ -609,16 +604,15 @@ func _update_hud() -> void:
 	arena.hud.update_recovery_stone(arena.recovery_stone_charge, arena.recovery_stone_need)
 	arena.hud.update_merchant_count(arena.merchants.size())
 	arena.hud.update_synergy(arena._get_synergy_bonuses())
-	# 小地图数据（仅显示战争迷雾视野内的敌人/商人/宝箱）
+	# 小地图和目标信息遵守真实战争迷雾，而非仅按与英雄的直线距离筛选。
 	var enemy_positions: Array = []
 	for enemy in arena.enemies_root.get_children():
-		if enemy is Enemy and not enemy.is_dead():
-			if enemy.global_position.distance_to(arena.player.global_position) <= arena.FOG_RADIUS:
-				enemy_positions.append(enemy.global_position)
+		if enemy is Enemy and not enemy.is_dead() and (arena.fog == null or arena.fog.is_position_visible(enemy.global_position)):
+			enemy_positions.append(enemy.global_position)
 	var merchant_positions: Array = []
-	for m in arena.merchants:
-		if m.global_position.distance_to(arena.player.global_position) <= arena.FOG_RADIUS:
-			merchant_positions.append(m.global_position)
+	for merchant in arena.merchants:
+		if is_instance_valid(merchant) and (arena.fog == null or arena.fog.is_position_visible(merchant.global_position)):
+			merchant_positions.append(merchant.global_position)
 	var layout_roads: Array = []
 	var camp_positions: Array = []
 	var boss_position := Vector2.ZERO
@@ -626,7 +620,13 @@ func _update_hud() -> void:
 		layout_roads = arena.world_layout.get_roads()
 		camp_positions = arena.world_layout.get_camp_positions()
 		boss_position = arena.world_layout.get_boss_spawn_position()
-	arena.hud.update_minimap(arena.player.global_position, enemy_positions, merchant_positions, Vector2(arena.MAP_WIDTH, arena.MAP_HEIGHT), layout_roads, camp_positions, boss_position)
+	var camera_rect: Rect2 = arena.camera_controller.get_world_view_rect() if arena.camera_controller != null else Rect2()
+	var fog_texture: Texture2D = arena.fog.get_minimap_fog_texture() if arena.fog != null else null
+	arena.hud.update_minimap(arena.player.global_position, enemy_positions, merchant_positions, Vector2(arena.MAP_WIDTH, arena.MAP_HEIGHT), layout_roads, camp_positions, boss_position, camera_rect, fog_texture)
+	if arena.command_system != null:
+		arena.hud.update_selection(arena.command_system.get_selection_snapshot())
+		arena.hud.update_order(arena.command_system.get_order_snapshot())
+		arena.hud.update_target(arena.command_system.get_target_snapshot())
 	# M3：刷新生存目标条（倒计时 / Boss 进度 / 死亡次数 / 威胁等级）
 	if arena.survival != null and is_instance_valid(arena.survival):
 		arena.hud.update_objective({

@@ -7,7 +7,7 @@ const Arena = preload("res://src/arena.gd")
 const InputBindings = preload("res://src/input_bindings.gd")
 
 const TEST_CONFIG_PATH := "user://input_bindings_hud_display_test.cfg"
-const TEST_KEYS := [KEY_Q, KEY_E, KEY_R, KEY_F, KEY_Z, KEY_X]
+const TEST_KEYS := [KEY_Q, KEY_E, KEY_R, KEY_V, KEY_Z, KEY_B]
 
 
 func _initialize() -> void:

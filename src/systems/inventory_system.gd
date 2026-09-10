@@ -44,8 +44,8 @@ func _connect_hud() -> void:
 		_handle_drag(from_area, from_index, to_area, to_index)
 	var equip_click_cb := func(area: String, index: int):
 		_on_equipment_clicked(area, index)
-	var skill_click_cb := func(area: String, index: int):
-		pass
+	var skill_click_cb := func(_area: String, index: int):
+		arena.request_skill_from_hud(index)
 	var discard_cb := func(area: String, index: int):
 		_on_discard(area, index)
 	arena.hud.refresh_inventory(arena.skill_slots, arena.equipment_slots, arena.warehouse_slots, skill_click_cb, drag_cb, equip_click_cb, arena.augment_slots, discard_cb)
@@ -59,7 +59,7 @@ func _connect_hud() -> void:
 	var skill_keys := PackedStringArray()
 	for i in range(6):
 		skill_keys.append(InputBindings.get_action_key_text("skill_%d" % (i + 1)))
-	arena.hud.set_message("进入丛林。WASD移动，技能[%s]，交互%s，拾取%s，J召唤，T属性加点；左键框选召唤物，右键下令或标记敌人。" % ["/".join(skill_keys), InputBindings.get_action_key_text("interact"), InputBindings.get_action_key_text("pickup")])
+	arena.hud.set_message("进入丛林。右键移动/攻击，技能[%s]，交互%s，拾取%s；F1英雄，C全选召唤物，X停止，H驻守，G攻击移动，Y跟随。" % ["/".join(skill_keys), InputBindings.get_action_key_text("interact"), InputBindings.get_action_key_text("pickup")])
 
 func _handle_drag(from_area: String, from_index: int, to_area: String, to_index: int) -> void:
 	# 装备/仓库→丢弃区
@@ -90,29 +90,36 @@ func _handle_drag(from_area: String, from_index: int, to_area: String, to_index:
 	var id: String = String(from_slots[from_index].get("id", ""))
 	if id.is_empty():
 		return
+	var affects_loadout := from_area in ["skill", "aug0", "aug1", "equipment"] or to_area in ["skill", "aug0", "aug1", "equipment"]
+	var changed := false
 
 	match from_area + "->" + to_area:
 		"warehouse->skill":
-			_equip_skill_from_warehouse(from_index, to_index, "skill")
+			changed = _equip_skill_from_warehouse(from_index, to_index, "skill")
 		"warehouse->aug0":
-			_equip_augment_from_warehouse(from_index, to_index, 0)
+			changed = _equip_augment_from_warehouse(from_index, to_index, 0)
 		"warehouse->aug1":
-			_equip_augment_from_warehouse(from_index, to_index, 1)
+			changed = _equip_augment_from_warehouse(from_index, to_index, 1)
 		"aug0->warehouse":
-			_unequip_augment_to_warehouse(0, from_index, to_index)
+			changed = _unequip_augment_to_warehouse(0, from_index, to_index)
 		"aug1->warehouse":
-			_unequip_augment_to_warehouse(1, from_index, to_index)
+			changed = _unequip_augment_to_warehouse(1, from_index, to_index)
 		"warehouse->equipment":
-			_equip_equipment_from_warehouse(from_index, to_index)
+			changed = _equip_equipment_from_warehouse(from_index, to_index)
 		"equipment->warehouse":
-			_unequip_to_warehouse(from_index, to_index)
+			changed = _unequip_to_warehouse(from_index, to_index)
 		"warehouse->warehouse":
 			var tmp: Variant = arena.warehouse_slots[from_index]
 			arena.warehouse_slots[from_index] = arena.warehouse_slots[to_index]
 			arena.warehouse_slots[to_index] = tmp
+			changed = true
 		_:
 			return
 
+	if not changed:
+		return
+	if affects_loadout:
+		arena.on_loadout_changed()
 	_refresh_hud_slots()
 
 func _drop_equipment_to_ground(eq_index: int) -> void:
@@ -126,6 +133,7 @@ func _drop_equipment_to_ground(eq_index: int) -> void:
 	drop.position = arena.world_layout.project_to_walkable(drop_pos) if arena.world_layout != null else drop_pos
 	arena.drops_root.add_child(drop)
 	arena.hud.set_message("已丢弃【%s】到地上" % equip.get("name", "装备"))
+	arena.on_loadout_changed()
 	_refresh_hud_slots()
 
 func _on_discard(area: String, index: int) -> void:
@@ -150,73 +158,80 @@ func _on_equipment_clicked(area: String, index: int) -> void:
 	arena.hud.set_message("使用恢复石！恢复 %.0f HP + %.0f 能量" % [heal_hp, heal_en])
 	_refresh_hud_slots()
 
-func _equip_skill_from_warehouse(wh_idx: int, target_idx: int, area: String) -> void:
+func _equip_skill_from_warehouse(wh_idx: int, target_idx: int, area: String) -> bool:
 	var skill: Dictionary = arena.warehouse_slots[wh_idx]
 	var id := String(skill.get("id", ""))
 	if id.is_empty():
-		return
+		return false
 	if area == "skill" and GameData.get_skill(id).is_empty():
 		arena.hud.set_message("技能槽只能放技能")
-		return
+		return false
 	if arena._skill_id_exists(id):
 		arena.hud.set_message("【%s】已在技能槽中，不能重复装备" % skill.get("name", "技能"))
-		return
+		return false
 	var slots := arena.skill_slots
 	var old: Variant = slots[target_idx]
 	slots[target_idx] = skill
 	arena.warehouse_slots[wh_idx] = old
 	arena.cooldowns[arena.skill_actions[target_idx]] = 0.0
 	arena.hud.set_message("装备【%s】到主动槽" % skill.get("name", ""))
+	return true
 
 # 仓库 → 增益槽（融合单元的第 j 个增益位）：任何技能都可作增益（双用）
-func _equip_augment_from_warehouse(wh_idx: int, key_idx: int, j: int) -> void:
+func _equip_augment_from_warehouse(wh_idx: int, key_idx: int, j: int) -> bool:
 	var skill: Dictionary = arena.warehouse_slots[wh_idx]
 	var id := String(skill.get("id", ""))
 	if id.is_empty():
-		return
+		return false
 	if String(skill.get("cast_type", "")).is_empty():
 		arena.hud.set_message("增益槽只能放技能")
-		return
+		return false
 	if arena._skill_id_exists(id):
 		arena.hud.set_message("【%s】已在其他槽中，不能重复装备" % skill.get("name", "技能"))
-		return
+		return false
 	var old: Variant = arena.augment_slots[key_idx][j]
 	arena.augment_slots[key_idx][j] = skill
 	arena.warehouse_slots[wh_idx] = old if typeof(old) == TYPE_DICTIONARY else {}
 	var key_text := InputBindings.get_action_key_text("skill_%d" % (key_idx + 1))
 	arena.hud.set_message("【%s】作为增益强化 %s 键" % [skill.get("name", ""), key_text])
+	return true
 
 # 增益槽 → 仓库（卸下）
-func _unequip_augment_to_warehouse(j: int, key_idx: int, wh_idx: int) -> void:
+func _unequip_augment_to_warehouse(j: int, key_idx: int, wh_idx: int) -> bool:
 	if not arena._is_empty(arena.warehouse_slots[wh_idx]):
-		return
-	var a: Variant = arena.augment_slots[key_idx][j]
-	if typeof(a) != TYPE_DICTIONARY or arena._is_empty(a):
-		return
-	arena.warehouse_slots[wh_idx] = a
+		return false
+	var augment: Variant = arena.augment_slots[key_idx][j]
+	if typeof(augment) != TYPE_DICTIONARY or arena._is_empty(augment):
+		return false
+	arena.warehouse_slots[wh_idx] = augment
 	arena.augment_slots[key_idx][j] = {}
+	return true
 
-func _equip_equipment_from_warehouse(wh_idx: int, eq_idx: int) -> void:
+func _equip_equipment_from_warehouse(wh_idx: int, eq_idx: int) -> bool:
 	var equip: Dictionary = arena.warehouse_slots[wh_idx]
 	var bonuses: Dictionary = equip.get("stat_bonuses", {})
 	if bonuses.is_empty() and String(equip.get("id", "")) != "recovery_stone":
-		return
+		return false
 	var old: Variant = arena.equipment_slots[eq_idx]
 	arena.equipment_slots[eq_idx] = equip
 	arena.warehouse_slots[wh_idx] = old
 	arena.player.set_equipment(eq_idx, equip)
 	arena.player.refresh_max_hp()
 	arena.player.refresh_max_energy()
+	return true
 
-func _unequip_to_warehouse(eq_idx: int, wh_idx: int) -> void:
+func _unequip_to_warehouse(eq_idx: int, wh_idx: int) -> bool:
 	if not arena._is_empty(arena.warehouse_slots[wh_idx]):
-		return
+		return false
 	var equip: Dictionary = arena.equipment_slots[eq_idx]
+	if arena._is_empty(equip):
+		return false
 	arena.equipment_slots[eq_idx] = {}
 	arena.warehouse_slots[wh_idx] = equip
 	arena.player.set_equipment(eq_idx, {})
 	arena.player.refresh_max_hp()
 	arena.player.refresh_max_energy()
+	return true
 
 func _try_pickup() -> void:
 	var nearest: Node = null
@@ -281,8 +296,8 @@ func _refresh_hud_slots() -> void:
 		_handle_drag(from_area, from_index, to_area, to_index)
 	var equip_click_cb := func(area: String, index: int):
 		_on_equipment_clicked(area, index)
-	var skill_click_cb := func(area: String, index: int):
-		pass
+	var skill_click_cb := func(_area: String, index: int):
+		arena.request_skill_from_hud(index)
 	var discard_cb := func(area: String, index: int):
 		_on_discard(area, index)
 	arena.hud.refresh_inventory(arena.skill_slots, arena.equipment_slots, arena.warehouse_slots, skill_click_cb, drag_cb, equip_click_cb, arena.augment_slots, discard_cb)

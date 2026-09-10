@@ -16,6 +16,7 @@ var def: Dictionary = {}
 var dmg: float = 0.0
 var left: float = 0.0
 var timer: float = 0.0
+var pulses_remaining: int = 0
 var origin: Vector2 = Vector2.ZERO
 var point: Vector2 = Vector2.ZERO
 
@@ -28,13 +29,16 @@ func start(p_def: Dictionary, p_dmg: float, p_point: Vector2, p_origin: Vector2,
 		return
 	def = p_def
 	dmg = p_dmg
-	left = float(p_def.get("duration", 3.0))
+	left = maxf(float(p_def.get("duration", 3.0)), 0.0)
 	timer = 0.0
+	var interval := maxf(0.1, float(p_def.get("tick_interval", 0.5)))
+	pulses_remaining = maxi(1, ceili(left / interval))
 	origin = p_origin
 	point = p_point
 	on_pulse = p_on_pulse
 	active = true
 	_pulse()
+	pulses_remaining -= 1
 
 
 func interrupt(msg := "") -> void:
@@ -54,16 +58,17 @@ func is_active() -> bool:
 func update(delta: float, player_pos: Vector2) -> void:
 	if not active:
 		return
-	# 移动打断：玩家离开起始点超过容差即取消
+	# 防御性检查：移动入口会立即打断，这里用于处理位移类效果或外部位移。
 	if player_pos.distance_to(origin) > MOVE_TOLERANCE:
 		interrupt("引导被移动打断！")
 		return
-	left -= delta
+	left = maxf(left - delta, 0.0)
 	timer += delta
 	var interval := maxf(0.1, float(def.get("tick_interval", 0.5)))
-	while timer >= interval:
+	while timer >= interval and pulses_remaining > 0:
 		timer -= interval
 		_pulse()
+		pulses_remaining -= 1
 	if left <= 0.0:
 		interrupt("【%s】引导完成。" % def.get("name", "技能"))
 

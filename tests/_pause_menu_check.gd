@@ -4,6 +4,7 @@ extends SceneTree
 # 运行：godot --headless --path <项目根目录> --script res://tests/_pause_menu_check.gd
 
 const Arena = preload("res://src/arena.gd")
+const CommandSystem = preload("res://src/systems/command_system.gd")
 
 
 func _initialize() -> void:
@@ -44,9 +45,9 @@ func _initialize() -> void:
 		failures.append("Esc 关闭弹窗后暂停状态异常")
 
 	arena.stop_player_movement()
-	arena._set_player_move_target(arena.player.global_position + Vector2(300, 0))
+	arena.command_system.issue_hero_move(arena.player.global_position + Vector2(300, 0))
 	arena.hud.open_pause_menu()
-	if arena._player_moving or arena._player_chase_target != null:
+	if arena.command_system.hero_order_kind != CommandSystem.OrderKind.STOP:
 		failures.append("打开暂停菜单未清理英雄移动订单")
 	arena.hud.close_pause_menu()
 

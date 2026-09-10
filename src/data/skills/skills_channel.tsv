@@ -1,7 +1,7 @@
 # 引导类技能（Channel）：释放后站桩持续结算，移动/再次按键会打断
 # duration=引导总时长，tick_interval=每次结算间隔，damage=单次结算伤害
 id	name	icon	quality	school	cast_type	cast_mode	shape	target_side	damage	radius	range	duration	ground	tick_interval	cooldown	energy_cost	effects	augment_effects	tags	description
-blizzard_channel	暴风雪·引导	res://assets/skills/skill_icon_02.png	purple	ice	active	channel	circle	enemy	25	160	600	4	false	0.5	16	45	slow=0.3;slow_dur=1.5		ice,aoe,channel	在鼠标位置持续降下冰雪，每0.5秒伤害并减速，共4秒。
+blizzard_channel	暴风雪	res://assets/skills/skill_icon_02.png	purple	ice	active	channel	circle	enemy	25	160	600	4	false	0.5	16	45	slow=0.3;slow_dur=1.5		ice,aoe,channel	选择600范围内的地面位置后原地引导4秒；每0.5秒降下冰雪并减速敌人。
 starfall	群星坠落	res://assets/skills/skill_icon_05.png	purple	arcane	active	channel	self_ring	enemy	30	260	600	5	false	0.6	22	50			arcane,aoe,channel	以自身为中心持续召唤陨星，每0.6秒打击周围敌人，共5秒。
 rain_of_fire	火焰之雨	res://assets/skills/skill_icon_04.png	blue	fire	active	channel	circle	enemy	22	150	600	4	false	0.5	14	40			fire,aoe,channel	在鼠标位置持续降下火雨，共4秒。
 drain_life	生命汲取	res://assets/skills/skill_icon_11.png	blue	shadow	active	channel	self_ring	enemy	20	200	600	3	false	0.5	12	30	lifesteal=1.0		shadow,channel,lifesteal	持续汲取周围敌人生命，造成的伤害全额转化为治疗。
