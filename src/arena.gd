@@ -9,6 +9,7 @@ const InventorySystem = preload("res://src/systems/inventory_system.gd")
 const SkillEngine = preload("res://src/systems/skill_engine.gd")
 const AuraSystem = preload("res://src/systems/aura_system.gd")
 const WorldLayout = preload("res://src/systems/world_layout.gd")
+const InputBindings = preload("res://src/input_bindings.gd")
 
 const GameData = preload("res://src/data/game_data.gd")
 const HUD = preload("res://src/ui/hud.gd")
@@ -53,7 +54,6 @@ var last_message := ""
 var message_timer: float = 0.0
 var cooldowns := {}
 var skill_actions := ["skill_1", "skill_2", "skill_3", "skill_4", "skill_5", "skill_6"]
-var skill_key_names := ["1", "2", "3", "4", "5", "6"]
 var _camera: Camera2D
 # 技能预览：按下技能键显示范围遮罩，松开才真正释放
 var _preview_index: int = -1
@@ -310,6 +310,13 @@ func _clear_player_path() -> void:
 	_player_path_index = 0
 	_player_path_repath_remaining = 0.0
 
+func stop_player_movement() -> void:
+	_player_moving = false
+	_player_chase_target = null
+	_clear_player_path()
+	if player != null and is_instance_valid(player):
+		player.velocity = Vector2.ZERO
+
 func _next_player_move_goal(delta: float) -> Vector2:
 	if _player_chase_target != null:
 		if not is_instance_valid(_player_chase_target) or _player_chase_target.is_dead():
@@ -342,20 +349,7 @@ func _process_energy(delta: float) -> void:
 # 输入处理
 # ============================================================
 func _ensure_runtime_input_actions() -> void:
-	_ensure_runtime_key_action("interact", KEY_SPACE)
-	_ensure_runtime_key_action("attributes", KEY_T)
-
-func _ensure_runtime_key_action(action_name: String, keycode: Key) -> void:
-	if not InputMap.has_action(action_name):
-		InputMap.add_action(action_name)
-	if not InputMap.action_get_events(action_name).is_empty():
-		return
-	var physical_event := InputEventKey.new()
-	physical_event.physical_keycode = keycode
-	InputMap.action_add_event(action_name, physical_event)
-	var logical_event := InputEventKey.new()
-	logical_event.keycode = keycode
-	InputMap.action_add_event(action_name, logical_event)
+	InputBindings.initialize()
 
 func _handle_left_release(world_pos: Vector2) -> void:
 	# 单体目标技能选取态：左键点击单位完成施放，不做框选
@@ -402,12 +396,16 @@ func _handle_right_click(world_pos: Vector2) -> void:
 			s.command_attack_target = null
 			s.command_target_pos = walkable_target
 
-func _process_input() -> void:
-	if Input.is_action_just_pressed("ui_cancel"):
-		if hud != null and hud.dismiss_top_transient():
-			return
-		_cancel_current_action()
+func _unhandled_input(event: InputEvent) -> void:
+	if not event.is_action_pressed("ui_cancel") or event.is_echo():
 		return
+	if _cancel_current_action():
+		get_viewport().set_input_as_handled()
+		return
+	if hud != null and hud.open_pause_menu():
+		get_viewport().set_input_as_handled()
+
+func _process_input() -> void:
 	if hud != null and hud.has_modal():
 		return
 
@@ -462,35 +460,41 @@ func _process_input() -> void:
 				_release_skill(i)
 	if Input.is_action_just_pressed("summon_spawn"):
 		_spawn_summon()
-	# 交互键
-	if Input.is_action_just_pressed("interact"):
+	# 交互与拾取默认都可绑定 Space：商人/祭坛成功时优先结束，未交互时才拾取。
+	var interact_pressed := Input.is_action_just_pressed("interact")
+	var pickup_pressed := Input.is_action_just_pressed("pickup")
+	if interact_pressed:
 		if _try_merchant_interact():
 			return
 		if _try_idol_interact():
 			return
+	if pickup_pressed:
 		_try_pickup()
 	# 属性分配面板开关（T）
 	if Input.is_action_just_pressed("attributes"):
 		hud.toggle_attribute_panel()
 
-func _cancel_current_action() -> void:
+func _cancel_current_action() -> bool:
 	if skill_engine != null and skill_engine.is_targeting():
 		skill_engine.cancel_targeting()
-		return
+		return true
 	if skill_engine != null and skill_engine.is_channeling():
 		skill_engine.interrupt_channel("引导已取消。")
-		return
+		return true
 	if _preview_index >= 0:
 		_cancel_skill_preview()
-		return
+		return true
 	if _is_dragging:
 		_left_was_pressed = false
 		_is_dragging = false
 		_selection_box = Rect2()
 		if selection_drawer != null:
 			selection_drawer.queue_redraw()
-		return
-	_clear_selection()
+		return true
+	if not selected_summons.is_empty():
+		_clear_selection()
+		return true
+	return false
 
 # ============================================================
 # 技能预览：按下显示遮罩，松开释放
@@ -643,7 +647,6 @@ func _show_settlement(res: String) -> void:
 		"gold": gold,
 		"hp_pct": player.hp / maxf(player.max_hp_calc(), 1.0)
 	})
-	get_tree().paused = true
 
 func _on_enemy_killed(enemy: Enemy) -> void: world._on_enemy_killed(enemy)
 func _spawn_drop(enemy: Enemy) -> void: world._spawn_drop(enemy)

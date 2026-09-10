@@ -7,6 +7,7 @@ class_name InventorySystem
 
 const Arena = preload("res://src/arena.gd")
 const GameData = preload("res://src/data/game_data.gd")
+const InputBindings = preload("res://src/input_bindings.gd")
 const SkillDrop = preload("res://src/systems/skill_drop.gd")
 
 var arena: Arena
@@ -55,7 +56,10 @@ func _connect_hud() -> void:
 		"str": arena.player.total_str(), "agi": arena.player.total_agi(),
 		"int": arena.player.total_int(), "vit": arena.player.total_vit(), "luk": arena.player.total_luk()
 	})
-	arena.hud.set_message("进入丛林。WASD移动，1-6 释放技能，Space 交互/拾取，J 召唤，T 属性加点；左键框选召唤物，右键下令或标记敌人。")
+	var skill_keys := PackedStringArray()
+	for i in range(6):
+		skill_keys.append(InputBindings.get_action_key_text("skill_%d" % (i + 1)))
+	arena.hud.set_message("进入丛林。WASD移动，技能[%s]，交互%s，拾取%s，J召唤，T属性加点；左键框选召唤物，右键下令或标记敌人。" % ["/".join(skill_keys), InputBindings.get_action_key_text("interact"), InputBindings.get_action_key_text("pickup")])
 
 func _handle_drag(from_area: String, from_index: int, to_area: String, to_index: int) -> void:
 	# 装备/仓库→丢弃区
@@ -179,7 +183,8 @@ func _equip_augment_from_warehouse(wh_idx: int, key_idx: int, j: int) -> void:
 	var old: Variant = arena.augment_slots[key_idx][j]
 	arena.augment_slots[key_idx][j] = skill
 	arena.warehouse_slots[wh_idx] = old if typeof(old) == TYPE_DICTIONARY else {}
-	arena.hud.set_message("【%s】作为增益强化 %s 键" % [skill.get("name", ""), arena.skill_key_names[key_idx] if key_idx < arena.skill_key_names.size() else str(key_idx)])
+	var key_text := InputBindings.get_action_key_text("skill_%d" % (key_idx + 1))
+	arena.hud.set_message("【%s】作为增益强化 %s 键" % [skill.get("name", ""), key_text])
 
 # 增益槽 → 仓库（卸下）
 func _unequip_augment_to_warehouse(j: int, key_idx: int, wh_idx: int) -> void:

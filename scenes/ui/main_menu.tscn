@@ -45,9 +45,7 @@ offset_left = 120.0
 offset_top = 250.0
 offset_right = 1120.0
 offset_bottom = 370.0
-text = "WASD移动 · Space交互/拾取 · 1-6释放技能 · 鼠标右键移动/标记敌人
-掉落物靠近自动显示名字 · 仓库拖拽到技能/装备槽 · 地图上自己找商人
-6技能槽(主技能+融合增益) + 6装备槽 + 6仓库槽"
+text = "正在加载操作说明…"
 autowrap_mode = 2
 
 [node name="HeroCard" type="Button" parent="."]
@@ -92,6 +90,16 @@ layout_mode = 2
 text = "→ 点击进入丛林"
 theme_override_font_sizes/font_size = 18
 modulate = Color(0.6, 1, 0.6, 1)
+
+[node name="SettingsButton" type="Button" parent="."]
+layout_mode = 0
+offset_left = 548.0
+offset_top = 578.0
+offset_right = 760.0
+offset_bottom = 620.0
+text = "设置"
+theme_override_font_sizes/font_size = 16
+focus_mode = 0
 
 [node name="Footer" type="Label" parent="."]
 layout_mode = 0

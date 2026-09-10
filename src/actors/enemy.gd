@@ -75,7 +75,8 @@ func _ready() -> void:
 	original_modulate = modulate
 	add_to_group("enemy")
 	collision_layer = 2
-	collision_mask = 1 | 4 | 8
+	# 敌人不再把英雄当作实体墙；仍与召唤物和世界阻挡物发生物理碰撞。
+	collision_mask = 4 | 8
 
 	var collision := CollisionShape2D.new()
 	collision.name = "BodyCollision"

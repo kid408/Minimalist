@@ -9,188 +9,188 @@ script = ExtResource("1")
 layout_mode = 0
 offset_left = 12.0
 offset_top = 12.0
-offset_right = 372.0
-offset_bottom = 108.0
+offset_right = 312.0
+offset_bottom = 88.0
 
 [node name="HPBar" type="ProgressBar" parent="TopLeft"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 10.0
-offset_right = 210.0
-offset_bottom = 26.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 168.0
+offset_bottom = 22.0
 show_percentage = false
 modulate = Color(0.88, 0.15, 0.15, 1)
 
 [node name="HPLabel" type="Label" parent="TopLeft"]
 layout_mode = 0
-offset_left = 216.0
-offset_top = 8.0
-offset_right = 346.0
-offset_bottom = 28.0
-theme_override_font_sizes/font_size = 14
+offset_left = 174.0
+offset_top = 6.0
+offset_right = 292.0
+offset_bottom = 22.0
+theme_override_font_sizes/font_size = 12
 
 [node name="EnergyBar" type="ProgressBar" parent="TopLeft"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 32.0
-offset_right = 210.0
-offset_bottom = 44.0
+offset_left = 8.0
+offset_top = 28.0
+offset_right = 168.0
+offset_bottom = 40.0
 show_percentage = false
 modulate = Color(0.22, 0.58, 1, 1)
 
 [node name="EnergyLabel" type="Label" parent="TopLeft"]
 layout_mode = 0
-offset_left = 216.0
-offset_top = 28.0
-offset_right = 346.0
-offset_bottom = 48.0
-theme_override_font_sizes/font_size = 14
+offset_left = 174.0
+offset_top = 24.0
+offset_right = 292.0
+offset_bottom = 40.0
+theme_override_font_sizes/font_size = 12
 
 [node name="GoldLabel" type="Label" parent="TopLeft"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 52.0
-offset_right = 170.0
-offset_bottom = 74.0
-theme_override_font_sizes/font_size = 16
+offset_left = 8.0
+offset_top = 45.0
+offset_right = 150.0
+offset_bottom = 62.0
+theme_override_font_sizes/font_size = 13
 modulate = Color(1, 0.85, 0.3, 1)
 
 [node name="StatsLabel" type="Label" parent="TopLeft"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 74.0
-offset_right = 350.0
-offset_bottom = 92.0
-theme_override_font_sizes/font_size = 13
+offset_left = 8.0
+offset_top = 61.0
+offset_right = 296.0
+offset_bottom = 75.0
+theme_override_font_sizes/font_size = 11
 
 [node name="ProgPanel" type="Panel" parent="."]
 layout_mode = 0
 offset_left = 12.0
-offset_top = 116.0
-offset_right = 372.0
-offset_bottom = 172.0
+offset_top = 96.0
+offset_right = 312.0
+offset_bottom = 144.0
 
 [node name="LevelLabel" type="Label" parent="ProgPanel"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 6.0
-offset_right = 190.0
-offset_bottom = 26.0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = 145.0
+offset_bottom = 20.0
 text = "等级 Lv.1"
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 12
 
 [node name="SkillPointLabel" type="Label" parent="ProgPanel"]
 layout_mode = 0
-offset_left = 190.0
-offset_top = 6.0
-offset_right = 350.0
-offset_bottom = 26.0
+offset_left = 153.0
+offset_top = 4.0
+offset_right = 296.0
+offset_bottom = 20.0
 text = "技能点：0"
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 12
 modulate = Color(0.6, 1, 0.7, 1)
 
 [node name="XPBar" type="ProgressBar" parent="ProgPanel"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 32.0
-offset_right = 350.0
-offset_bottom = 46.0
+offset_left = 8.0
+offset_top = 28.0
+offset_right = 292.0
+offset_bottom = 40.0
 show_percentage = false
 modulate = Color(0.5, 0.4, 0.95, 1)
 
 [node name="MessageLabel" type="Label" parent="."]
 layout_mode = 0
-offset_left = 382.0
-offset_top = 18.0
-offset_right = 942.0
-offset_bottom = 46.0
-theme_override_font_sizes/font_size = 14
+offset_left = 322.0
+offset_top = 14.0
+offset_right = 822.0
+offset_bottom = 38.0
+theme_override_font_sizes/font_size = 12
 horizontal_alignment = 1
 modulate = Color(0.9, 0.9, 0.7, 1)
 
 [node name="WarehousePanel" type="Panel" parent="."]
 layout_mode = 0
 offset_left = 12.0
-offset_top = 460.0
-offset_right = 512.0
-offset_bottom = 560.0
+offset_top = 668.0
+offset_right = 392.0
+offset_bottom = 750.0
 
 [node name="WarehouseTitle" type="Label" parent="WarehousePanel"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 6.0
-offset_right = 490.0
-offset_bottom = 24.0
-text = "仓库（拖到技能/装备使用 · 右键直接丢弃）"
-theme_override_font_sizes/font_size = 13
+offset_left = 8.0
+offset_top = 4.0
+offset_right = 372.0
+offset_bottom = 18.0
+text = "仓库（拖到技能/装备 · 右键丢弃）"
+theme_override_font_sizes/font_size = 11
 
 [node name="WarehouseGrid" type="HBoxContainer" parent="WarehousePanel"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 28.0
-offset_right = 490.0
-offset_bottom = 94.0
+offset_left = 8.0
+offset_top = 22.0
+offset_right = 372.0
+offset_bottom = 78.0
 
 [node name="SkillPanel" type="Panel" parent="."]
 layout_mode = 0
-offset_left = 524.0
-offset_top = 586.0
-offset_right = 1024.0
-offset_bottom = 718.0
+offset_left = 796.0
+offset_top = 660.0
+offset_right = 1176.0
+offset_bottom = 762.0
 
 [node name="SkillTitle" type="Label" parent="SkillPanel"]
 layout_mode = 0
-offset_left = 10.0
+offset_left = 8.0
 offset_top = 4.0
-offset_right = 490.0
-offset_bottom = 22.0
-text = "技能融合槽（主技能 + 2 增益）按键 1-6"
-theme_override_font_sizes/font_size = 13
+offset_right = 372.0
+offset_bottom = 18.0
+text = "技能融合槽（主技能 + 2 增益）"
+theme_override_font_sizes/font_size = 11
 
 [node name="SkillGrid" type="HBoxContainer" parent="SkillPanel"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 26.0
-offset_right = 490.0
-offset_bottom = 126.0
+offset_left = 8.0
+offset_top = 24.0
+offset_right = 372.0
+offset_bottom = 92.0
 
 [node name="EquipPanel" type="Panel" parent="."]
 layout_mode = 0
-offset_left = 524.0
-offset_top = 460.0
-offset_right = 1024.0
-offset_bottom = 556.0
+offset_left = 404.0
+offset_top = 668.0
+offset_right = 784.0
+offset_bottom = 750.0
 
 [node name="EquipTitle" type="Label" parent="EquipPanel"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 6.0
-offset_right = 490.0
-offset_bottom = 24.0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = 372.0
+offset_bottom = 18.0
 text = "装备槽"
-theme_override_font_sizes/font_size = 13
+theme_override_font_sizes/font_size = 11
 
 [node name="EquipGrid" type="HBoxContainer" parent="EquipPanel"]
 layout_mode = 0
-offset_left = 10.0
-offset_top = 28.0
-offset_right = 490.0
-offset_bottom = 90.0
+offset_left = 8.0
+offset_top = 22.0
+offset_right = 372.0
+offset_bottom = 78.0
 
 [node name="GroundZonePlaceholder" type="Control" parent="."]
 layout_mode = 0
 offset_left = 12.0
-offset_top = 588.0
-offset_right = 512.0
-offset_bottom = 718.0
+offset_top = 754.0
+offset_right = 392.0
+offset_bottom = 798.0
 
 [node name="RecoveryLabel" type="Label" parent="."]
 layout_mode = 0
-offset_left = 524.0
-offset_top = 560.0
-offset_right = 1024.0
-offset_bottom = 582.0
-theme_override_font_sizes/font_size = 13
+offset_left = 404.0
+offset_top = 754.0
+offset_right = 784.0
+offset_bottom = 772.0
+theme_override_font_sizes/font_size = 11
 horizontal_alignment = 2
 modulate = Color(0.7, 0.9, 0.7, 1)
 
@@ -290,10 +290,10 @@ text = "放弃拾取"
 
 [node name="MinimapPlaceholder" type="Control" parent="."]
 layout_mode = 0
-offset_left = 1120.0
+offset_left = 1316.0
 offset_top = 12.0
-offset_right = 1260.0
-offset_bottom = 112.0
+offset_right = 1428.0
+offset_bottom = 92.0
 
 [node name="TradePanel" type="Panel" parent="."]
 layout_mode = 0

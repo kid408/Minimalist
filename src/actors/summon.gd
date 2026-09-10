@@ -40,7 +40,8 @@ var _body_color: Color = Color(0.4, 0.9, 1.0)
 
 func _ready() -> void:
 	collision_layer = 4
-	collision_mask = 1 | 2 | 8
+	# 召唤物不阻挡英雄移动，仍与敌人和世界阻挡物碰撞。
+	collision_mask = 2 | 8
 
 	var collision := CollisionShape2D.new()
 	collision.name = "BodyCollision"

@@ -8,7 +8,8 @@ const ENERGY_REGEN_BASE := 5.0
 func _ready() -> void:
 	add_to_group("player")
 	collision_layer = 1
-	collision_mask = 2 | 4 | 8
+	# 英雄仍可被投射物与交互区检测，但实体移动只受世界阻挡物限制。
+	collision_mask = 8
 
 	var collision := CollisionShape2D.new()
 	collision.name = "BodyCollision"

@@ -2,7 +2,13 @@ extends CanvasLayer
 class_name HUD
 
 const GameData = preload("res://src/data/game_data.gd")
+const InputBindings = preload("res://src/input_bindings.gd")
 const LOGICAL_VIEWPORT_SIZE := Vector2(1440, 810)
+const FULL_SLOT_SIZE := Vector2(56, 56)
+const FUSION_HOST_SIZE := Vector2(56, 34)
+const FUSION_MINI_SIZE := Vector2(56, 16)
+const FUSION_UNIT_SIZE := Vector2(56, 68)
+const BOTTOM_SLOT_SPACING := 4
 
 var arena: Node = null
 
@@ -22,7 +28,7 @@ class Minimap:
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		custom_minimum_size = Vector2(140, 100)
+		custom_minimum_size = Vector2(112, 80)
 		queue_redraw()
 
 	func update_data(player_pos: Vector2, enemies: Array, merchants: Array, world: Vector2, roads: Array = [], camps: Array = [], boss_pos: Vector2 = Vector2.ZERO) -> void:
@@ -117,6 +123,7 @@ class InventorySlot:
 	var slot_label: Label
 	var icon_rect: TextureRect
 	var cd_label: Label
+	var key_action := ""
 	var cd_value: float = 0.0
 	var tip_text := ""
 	var _energy_ok: bool = true
@@ -141,31 +148,35 @@ class InventorySlot:
 				_setup_full(slot_area, idx, slot_title)
 		tooltip_text = tip_text
 
-	# 融合单元主技能槽（76×48：键位 + 大图标 + CD/等级）
+	func refresh_key_hint() -> void:
+		if not key_action.is_empty() and slot_label != null:
+			slot_label.text = InputBindings.get_action_key_text(key_action)
+
+	# 融合单元主技能槽（紧凑键位 + 图标 + CD/等级）
 	func _setup_host(idx2: int) -> void:
-		custom_minimum_size = Vector2(76, 48)
-		var keys := ["1", "2", "3", "4", "5", "6"]
+		custom_minimum_size = FUSION_HOST_SIZE
+		key_action = "skill_%d" % (idx2 + 1)
 		slot_label = Label.new()
-		slot_label.position = Vector2(4, 2)
-		slot_label.size = Vector2(40, 12)
-		slot_label.text = keys[idx2] if idx2 < keys.size() else str(idx2)
-		slot_label.add_theme_font_size_override("font_size", 10)
+		slot_label.position = Vector2(3, 1)
+		slot_label.size = Vector2(28, 10)
+		slot_label.text = InputBindings.get_action_key_text(key_action)
+		slot_label.add_theme_font_size_override("font_size", 8)
 		slot_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(slot_label)
 
 		icon_rect = TextureRect.new()
-		icon_rect.position = Vector2(23, 14)
-		icon_rect.custom_minimum_size = Vector2(30, 30)
+		icon_rect.position = Vector2(17, 10)
+		icon_rect.custom_minimum_size = Vector2(22, 22)
 		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(icon_rect)
 
 		cd_label = Label.new()
-		cd_label.position = Vector2(4, 18)
-		cd_label.size = Vector2(68, 14)
+		cd_label.position = Vector2(3, 14)
+		cd_label.size = Vector2(50, 11)
 		cd_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		cd_label.add_theme_font_size_override("font_size", 11)
+		cd_label.add_theme_font_size_override("font_size", 8)
 		cd_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		cd_label.visible = false
 		add_child(cd_label)
@@ -173,10 +184,10 @@ class InventorySlot:
 		var lvl := int(item.get("level", 1))
 		if lvl > 1:
 			var lvl_label := Label.new()
-			lvl_label.position = Vector2(42, 2)
-			lvl_label.size = Vector2(32, 12)
+			lvl_label.position = Vector2(33, 1)
+			lvl_label.size = Vector2(21, 10)
 			lvl_label.text = "Lv.%d" % lvl
-			lvl_label.add_theme_font_size_override("font_size", 9)
+			lvl_label.add_theme_font_size_override("font_size", 7)
 			lvl_label.modulate = Color(1.0, 0.9, 0.3)
 			lvl_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			add_child(lvl_label)
@@ -188,21 +199,21 @@ class InventorySlot:
 			icon_rect.texture = _load_icon(String(item.get("icon", "")))
 			tip_text = _build_tooltip()
 
-	# 融合单元增益槽（76×22：小图标 + 名字）
+	# 融合单元增益槽（紧凑小图标 + 名字）
 	func _setup_mini() -> void:
-		custom_minimum_size = Vector2(76, 22)
+		custom_minimum_size = FUSION_MINI_SIZE
 		icon_rect = TextureRect.new()
-		icon_rect.position = Vector2(3, 2)
-		icon_rect.custom_minimum_size = Vector2(18, 18)
+		icon_rect.position = Vector2(2, 1)
+		icon_rect.custom_minimum_size = Vector2(14, 14)
 		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(icon_rect)
 
 		slot_label = Label.new()
-		slot_label.position = Vector2(25, 3)
-		slot_label.size = Vector2(48, 16)
-		slot_label.add_theme_font_size_override("font_size", 9)
+		slot_label.position = Vector2(18, 1)
+		slot_label.size = Vector2(36, 14)
+		slot_label.add_theme_font_size_override("font_size", 7)
 		slot_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(slot_label)
 
@@ -220,36 +231,38 @@ class InventorySlot:
 			slot_label.text = String(item.get("name", "")) + ((" Lv.%d" % lvl) if lvl > 1 else "")
 			tip_text = "【增益 ×0.5】\n" + _build_tooltip()
 
-	# 通用大槽（72×72：仓库/装备/被动）
+	# 通用紧凑槽（仓库 / 装备 / 被动）
 	func _setup_full(slot_area: String, idx: int, slot_title: String) -> void:
-		custom_minimum_size = Vector2(72, 72)
+		custom_minimum_size = FULL_SLOT_SIZE
 		var key_text := ""
 		match slot_area:
-			"skill": key_text = ["1", "2", "3", "4", "5", "6"][idx]
-			"equipment": key_text = "E%d" % (idx + 1)
-			"warehouse": key_text = "%d" % (idx + 1)
+			"skill":
+				key_action = "skill_%d" % (idx + 1)
+				key_text = InputBindings.get_action_key_text(key_action)
+			"equipment": key_text = "装备"
+			"warehouse": key_text = "仓库"
 
 		slot_label = Label.new()
-		slot_label.position = Vector2(4, 4)
-		slot_label.size = Vector2(64, 16)
-		slot_label.text = "%s %s" % [key_text, slot_title]
-		slot_label.add_theme_font_size_override("font_size", 11)
+		slot_label.position = Vector2(3, 2)
+		slot_label.size = Vector2(50, 11)
+		slot_label.text = ("%s %s" % [key_text, slot_title]).strip_edges()
+		slot_label.add_theme_font_size_override("font_size", 9)
 		slot_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(slot_label)
 
 		icon_rect = TextureRect.new()
-		icon_rect.position = Vector2(8, 20)
-		icon_rect.custom_minimum_size = Vector2(34, 34)
+		icon_rect.position = Vector2(7, 15)
+		icon_rect.custom_minimum_size = Vector2(26, 26)
 		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(icon_rect)
 
 		cd_label = Label.new()
-		cd_label.position = Vector2(4, 52)
-		cd_label.size = Vector2(64, 16)
+		cd_label.position = Vector2(3, 40)
+		cd_label.size = Vector2(50, 12)
 		cd_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		cd_label.add_theme_font_size_override("font_size", 10)
+		cd_label.add_theme_font_size_override("font_size", 8)
 		cd_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		cd_label.visible = false
 		add_child(cd_label)
@@ -258,20 +271,20 @@ class InventorySlot:
 		var lvl := int(item.get("level", 1))
 		if lvl > 1:
 			var lvl_label := Label.new()
-			lvl_label.position = Vector2(42, 4)
-			lvl_label.size = Vector2(28, 14)
+			lvl_label.position = Vector2(34, 2)
+			lvl_label.size = Vector2(20, 10)
 			lvl_label.text = "Lv.%d" % lvl
-			lvl_label.add_theme_font_size_override("font_size", 10)
+			lvl_label.add_theme_font_size_override("font_size", 7)
 			lvl_label.modulate = Color(1.0, 0.9, 0.3)
 			lvl_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			add_child(lvl_label)
 
 		# 类型标签
 		var type_label := Label.new()
-		type_label.position = Vector2(6, 36)
-		type_label.size = Vector2(60, 14)
+		type_label.position = Vector2(4, 30)
+		type_label.size = Vector2(48, 11)
 		type_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		type_label.add_theme_font_size_override("font_size", 9)
+		type_label.add_theme_font_size_override("font_size", 7)
 		type_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 		# tooltip
@@ -561,6 +574,8 @@ var _trade_close_callback: Callable
 var _idol_decline_callback: Callable
 var _modal_blocker: ColorRect
 var _modal_paused := false
+var pause_menu: Panel
+var _pause_menu_open := false
 var _cache_skill_slots: Array = []
 var _cache_cds: Dictionary = {}
 var _cache_energy: float = 100.0
@@ -587,7 +602,51 @@ func bind_arena(a: Node) -> void:
 	arena = a
 
 func has_modal() -> bool:
+	return _has_transient_modal() or _pause_menu_open
+
+func _has_transient_modal() -> bool:
 	return (trade_panel != null and trade_panel.visible) or (skill_select_panel != null and skill_select_panel.visible) or (replace_panel != null and replace_panel.visible) or (idol_popup != null and idol_popup.visible)
+
+func is_pause_menu_open() -> bool:
+	return _pause_menu_open
+
+func open_pause_menu() -> bool:
+	if _pause_menu_open or _has_transient_modal() or (settlement_panel != null and settlement_panel.visible):
+		return false
+	_pause_menu_open = true
+	if pause_menu != null:
+		pause_menu.visible = true
+	if arena != null and arena.has_method("stop_player_movement"):
+		arena.call("stop_player_movement")
+	_sync_pause_state()
+	return true
+
+func close_pause_menu() -> void:
+	_pause_menu_open = false
+	if pause_menu != null:
+		pause_menu.visible = false
+	_sync_pause_state()
+
+func return_to_main_menu() -> void:
+	Engine.time_scale = 1.0
+	_pause_menu_open = false
+	if pause_menu != null:
+		pause_menu.visible = false
+	if settlement_panel != null:
+		settlement_panel.visible = false
+	if _modal_blocker != null:
+		_modal_blocker.visible = false
+	get_tree().paused = false
+	call_deferred("_reload_current_scene")
+
+func quit_game() -> void:
+	Engine.time_scale = 1.0
+	_pause_menu_open = false
+	get_tree().paused = false
+	get_tree().quit()
+
+func _reload_current_scene() -> void:
+	get_tree().reload_current_scene()
 
 func is_pointer_over_interactive_ui() -> bool:
 	var hovered := get_viewport().gui_get_hovered_control()
@@ -596,6 +655,9 @@ func is_pointer_over_interactive_ui() -> bool:
 func dismiss_top_transient() -> bool:
 	if settlement_panel != null and settlement_panel.visible:
 		return false
+	if _pause_menu_open:
+		close_pause_menu()
+		return true
 	if replace_panel != null and replace_panel.visible:
 		_close_replace_popup()
 		return true
@@ -614,7 +676,13 @@ func dismiss_top_transient() -> bool:
 	return false
 
 func _input(event: InputEvent) -> void:
-	if _modal_paused and event.is_action_pressed("ui_cancel") and dismiss_top_transient():
+	if not event.is_action_pressed("ui_cancel") or event.is_echo():
+		return
+	if _pause_menu_open:
+		close_pause_menu()
+		get_viewport().set_input_as_handled()
+		return
+	if (_has_transient_modal() or (attr_panel != null and attr_panel.visible)) and dismiss_top_transient():
 		get_viewport().set_input_as_handled()
 
 func _build_modal_blocker() -> void:
@@ -627,6 +695,66 @@ func _build_modal_blocker() -> void:
 	add_child(_modal_blocker)
 	_refresh_modal_blocker_size()
 	get_viewport().size_changed.connect(_refresh_modal_blocker_size)
+
+func _build_pause_menu() -> void:
+	pause_menu = Panel.new()
+	pause_menu.name = "PauseMenu"
+	pause_menu.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_menu.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_menu.z_index = 80
+	pause_menu.size = Vector2(360, 260)
+	pause_menu.position = (_logical_viewport_size() - pause_menu.size) * 0.5
+	pause_menu.add_theme_stylebox_override("panel", _panel_bg(Color(0.045, 0.065, 0.10, 0.98), Color(0.42, 0.72, 1.0, 0.95)))
+	pause_menu.visible = false
+	add_child(pause_menu)
+
+	var title := Label.new()
+	title.position = Vector2(20, 18)
+	title.size = Vector2(320, 34)
+	title.text = "游戏已暂停"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	title.modulate = Color(0.72, 0.88, 1.0)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_menu.add_child(title)
+
+	var hint := Label.new()
+	hint.position = Vector2(24, 56)
+	hint.size = Vector2(312, 26)
+	hint.text = "Esc 可继续游戏"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 13)
+	hint.modulate = Color(0.68, 0.74, 0.84)
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_menu.add_child(hint)
+
+	var resume_button := Button.new()
+	resume_button.name = "ResumeButton"
+	resume_button.position = Vector2(72, 94)
+	resume_button.size = Vector2(216, 38)
+	resume_button.text = "继续游戏 (Esc)"
+	resume_button.focus_mode = Control.FOCUS_NONE
+	resume_button.pressed.connect(close_pause_menu)
+	pause_menu.add_child(resume_button)
+
+	var menu_button := Button.new()
+	menu_button.name = "MainMenuButton"
+	menu_button.position = Vector2(72, 142)
+	menu_button.size = Vector2(216, 38)
+	menu_button.text = "返回主菜单"
+	menu_button.focus_mode = Control.FOCUS_NONE
+	menu_button.pressed.connect(return_to_main_menu)
+	pause_menu.add_child(menu_button)
+
+	var quit_button := Button.new()
+	quit_button.name = "QuitButton"
+	quit_button.position = Vector2(72, 190)
+	quit_button.size = Vector2(216, 38)
+	quit_button.text = "退出游戏"
+	quit_button.focus_mode = Control.FOCUS_NONE
+	quit_button.pressed.connect(quit_game)
+	pause_menu.add_child(quit_button)
 
 func _logical_viewport_size() -> Vector2:
 	var root_window := get_tree().root
@@ -641,20 +769,20 @@ func _refresh_modal_blocker_size() -> void:
 		return
 	_modal_blocker.position = Vector2.ZERO
 	_modal_blocker.size = _logical_viewport_size()
+	if pause_menu != null:
+		pause_menu.position = (_logical_viewport_size() - pause_menu.size) * 0.5
 
 func _refresh_modal_state() -> void:
-	var active := has_modal()
-	if active and attr_panel != null:
+	_sync_pause_state()
+
+func _sync_pause_state() -> void:
+	var active := _has_transient_modal() or _pause_menu_open or (settlement_panel != null and settlement_panel.visible)
+	if _has_transient_modal() and attr_panel != null:
 		attr_panel.visible = false
 	if _modal_blocker != null:
 		_modal_blocker.visible = active
-	if active == _modal_paused:
-		return
 	_modal_paused = active
-	if active:
-		get_tree().paused = true
-	elif settlement_panel == null or not settlement_panel.visible:
-		get_tree().paused = false
+	get_tree().paused = active
 
 func _close_replace_popup() -> void:
 	if replace_panel == null:
@@ -805,7 +933,11 @@ func _ready() -> void:
 	skill_select_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	replace_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	idol_popup.mouse_filter = Control.MOUSE_FILTER_STOP
+	warehouse_grid.add_theme_constant_override("separation", BOTTOM_SLOT_SPACING)
+	equip_grid.add_theme_constant_override("separation", BOTTOM_SLOT_SPACING)
+	skill_grid.add_theme_constant_override("separation", BOTTOM_SLOT_SPACING)
 	_build_modal_blocker()
+	_build_pause_menu()
 
 	# 节点树由 hud.tscn 提供，这里仅做逻辑连接与动态内容生成。
 	# 小地图：内部类实例挂载到场景占位节点
@@ -820,10 +952,10 @@ func _ready() -> void:
 	ground_zone.add_theme_stylebox_override("panel", _panel_bg(Color(0.10, 0.05, 0.04, 0.85), Color(0.95, 0.35, 0.25, 0.9)))
 	ground_zone_placeholder.add_child(ground_zone)
 	ground_label = Label.new()
-	ground_label.position = Vector2(10, 10)
-	ground_label.size = Vector2(480, 22)
-	ground_label.text = "丢弃区：拖到这里 或 右键物品 = 丢地上（不会消失）"
-	ground_label.add_theme_font_size_override("font_size", 13)
+	ground_label.position = Vector2(6, 8)
+	ground_label.size = Vector2(368, 18)
+	ground_label.text = "丢弃区：拖入或右键丢弃"
+	ground_label.add_theme_font_size_override("font_size", 11)
 	ground_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ground_zone.add_child(ground_label)
 	ground_zone.equipment_dropped.connect(func(from_area: String, idx: int):
@@ -924,8 +1056,8 @@ func set_message(text: String) -> void:
 # M3 生存目标条（倒计时 / Boss 进度 / 死亡次数 / 威胁等级）
 # ============================================================
 func _build_objective_bar() -> void:
-	var bar_w := 560.0
-	var bar_h := 30.0
+	var bar_w := 480.0
+	var bar_h := 26.0
 	objective_panel = Panel.new()
 	objective_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	objective_panel.add_theme_stylebox_override("panel", _panel_bg(Color(0.06, 0.08, 0.12, 0.92), Color(0.45, 0.7, 1.0, 0.8)))
@@ -935,15 +1067,15 @@ func _build_objective_bar() -> void:
 	add_child(objective_panel)
 
 	var hb := HBoxContainer.new()
-	hb.position = Vector2(10, 4)
-	hb.size = Vector2(bar_w - 20, bar_h - 8)
-	hb.add_theme_constant_override("separation", 14)
+	hb.position = Vector2(8, 3)
+	hb.size = Vector2(bar_w - 16, bar_h - 6)
+	hb.add_theme_constant_override("separation", 10)
 	objective_panel.add_child(hb)
 
-	obj_time = Label.new(); obj_time.add_theme_font_size_override("font_size", 13)
-	obj_boss = Label.new(); obj_boss.add_theme_font_size_override("font_size", 13)
-	obj_death = Label.new(); obj_death.add_theme_font_size_override("font_size", 13)
-	obj_threat = Label.new(); obj_threat.add_theme_font_size_override("font_size", 13)
+	obj_time = Label.new(); obj_time.add_theme_font_size_override("font_size", 11)
+	obj_boss = Label.new(); obj_boss.add_theme_font_size_override("font_size", 11)
+	obj_death = Label.new(); obj_death.add_theme_font_size_override("font_size", 11)
+	obj_threat = Label.new(); obj_threat.add_theme_font_size_override("font_size", 11)
 	for l in [obj_time, obj_boss, obj_death, obj_threat]:
 		hb.add_child(l)
 	update_objective({"time": 1800.0, "boss": 0, "boss_quota": 5, "deaths": 0, "death_limit": 3, "threat": 1})
@@ -1007,11 +1139,8 @@ func _build_settlement_panel() -> void:
 	var btn := Button.new()
 	btn.position = Vector2(180, 316)
 	btn.size = Vector2(160, 36)
-	btn.text = "重新开始 (R)"
-	btn.pressed.connect(func():
-		get_tree().paused = false
-		get_tree().reload_current_scene()
-	)
+	btn.text = "返回主菜单"
+	btn.pressed.connect(return_to_main_menu)
 	settlement_panel.add_child(btn)
 
 func show_settlement(win: bool, d: Dictionary) -> void:
@@ -1037,6 +1166,7 @@ func show_settlement(win: bool, d: Dictionary) -> void:
 	else:
 		obj_hint.text = "提示：稳着打打不完配额，莽着打会超死亡上限——在「快」与「稳」间找平衡。"
 	settlement_panel.visible = true
+	_sync_pause_state()
 
 func _compute_rating(win: bool, d: Dictionary) -> String:
 	if not win:
@@ -1061,8 +1191,15 @@ func refresh_inventory(skills: Array, equipments: Array, warehouse: Array, slot_
 	_refill_fusion_grid(skills, augments, slot_clicked_cb, drag_cb, func(_a, _i): pass)
 	_refill_grid(equip_grid, "equipment", equipments, equip_click_cb, drag_cb, discard_cb)
 	_refill_grid(warehouse_grid, "warehouse", warehouse, func(a, i): pass, drag_cb, discard_cb)
+	refresh_skill_key_hints()
 	# 重新应用缓存的 CD
 	_apply_cached_cds()
+
+func refresh_skill_key_hints() -> void:
+	for i in range(skill_grid.get_child_count()):
+		var slot := _host_slot(i)
+		if slot != null:
+			slot.refresh_key_hint()
 
 # ============================================================
 # 融合网格：每键一个竖向融合单元（主技能大槽 + 2 个增益小槽）
@@ -1075,8 +1212,8 @@ func _refill_fusion_grid(skills: Array, augments: Array, click_cb: Callable, dra
 		var pair: Array = augments[i] if i < augments.size() else [{}, {}]
 
 		var unit := VBoxContainer.new()
-		unit.custom_minimum_size = Vector2(76, 96)
-		unit.add_theme_constant_override("separation", 2)
+		unit.custom_minimum_size = FUSION_UNIT_SIZE
+		unit.add_theme_constant_override("separation", 1)
 
 		var host_slot := _make_slot("skill", i, host, false, "host", click_cb, drag_cb, func(_a, _i): pass)
 		unit.add_child(host_slot)
@@ -1359,14 +1496,14 @@ func show_skill_select_popup(title: String, skills: Array, callback: Callable) -
 		if i >= skills.size():
 			continue
 		var item: Dictionary = skills[i]
+		var key_text := InputBindings.get_action_key_text("skill_%d" % (i + 1))
 		if String(item.get("id", "")).is_empty():
 			skill_select_buttons[i].visible = true
-			skill_select_buttons[i].text = "[%s] 空槽" % ["1","2","3","4","5","6"][i]
+			skill_select_buttons[i].text = "[%s] 空槽" % key_text
 			skill_select_buttons[i].modulate = Color(0.5, 0.5, 0.5)
 		else:
 			skill_select_buttons[i].visible = true
-			var key: String = ["1","2","3","4","5","6"][i]
-			skill_select_buttons[i].text = "[%s] %s · %s · 主动" % [key, item.get("name", "物品"), item.get("quality", "白")]
+			skill_select_buttons[i].text = "[%s] %s · %s · 主动" % [key_text, item.get("name", "物品"), item.get("quality", "白")]
 			skill_select_buttons[i].modulate = Color.WHITE
 		var idx: int = i
 		skill_select_buttons[i].pressed.connect(func(): _on_skill_selected(idx))
